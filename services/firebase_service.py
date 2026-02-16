@@ -8,6 +8,7 @@ import json
 import base64
 from typing import List, Dict, Optional
 from datetime import datetime
+import time
 
 class FirebaseService:
     """Servicio para manejar todas las operaciones con Firebase"""
