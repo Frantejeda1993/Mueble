@@ -93,6 +93,69 @@ def draw_isometric_box(ax, x, y, width, height, depth, face_color='#ADD8E6', sid
 
     return dx, dy
 
+
+def format_dimensions(ancho_mm, alto_mm=None, profundo_mm=None):
+    """Formatea dimensiones de forma consistente para todas las vistas."""
+    if alto_mm is not None and profundo_mm is not None:
+        return f"A {int(ancho_mm)} × H {int(alto_mm)} × P {int(profundo_mm)} mm"
+    if profundo_mm is not None:
+        return f"A {int(ancho_mm)} × P {int(profundo_mm)} mm"
+    return f"A {int(ancho_mm)} mm"
+
+
+def draw_module_structure(ax, x, y, width, height, depth, has_back=False, door_count=0):
+    """Dibuja un módulo como estructura de 4 maderas, con fondo/puertas opcionales."""
+    dx = depth * 0.35
+    dy = depth * 0.22
+    board_thickness = max(25, min(width, height) * 0.04)
+
+    board_color = '#C49A6C'
+    edge_color = '#5D4037'
+
+    # Estructura frontal (4 maderas)
+    ax.add_patch(patches.Rectangle((x, y), board_thickness, height, facecolor=board_color, edgecolor=edge_color, linewidth=1.2))
+    ax.add_patch(patches.Rectangle((x + width - board_thickness, y), board_thickness, height, facecolor=board_color, edgecolor=edge_color, linewidth=1.2))
+    ax.add_patch(patches.Rectangle((x, y + height - board_thickness), width, board_thickness, facecolor=board_color, edgecolor=edge_color, linewidth=1.2))
+    ax.add_patch(patches.Rectangle((x, y), width, board_thickness, facecolor=board_color, edgecolor=edge_color, linewidth=1.2))
+
+    # Aristas de profundidad para dar forma de cubo
+    ax.plot([x, x + dx], [y + height, y + height + dy], color=edge_color, linewidth=1)
+    ax.plot([x + width, x + width + dx], [y + height, y + height + dy], color=edge_color, linewidth=1)
+    ax.plot([x + width, x + width + dx], [y, y + dy], color=edge_color, linewidth=1)
+
+    ax.plot([x + dx, x + width + dx], [y + height + dy, y + height + dy], color=edge_color, linewidth=1)
+    ax.plot([x + width + dx, x + width + dx], [y + dy, y + height + dy], color=edge_color, linewidth=1)
+    ax.plot([x + width, x + width + dx], [y, y + dy], color=edge_color, linewidth=1)
+
+    # Fondo (cara trasera tapada)
+    if has_back:
+        back = Polygon(
+            [
+                (x + dx, y + dy),
+                (x + width + dx, y + dy),
+                (x + width + dx, y + height + dy),
+                (x + dx, y + height + dy),
+            ],
+            closed=True,
+            facecolor='#E8D3B0',
+            edgecolor=edge_color,
+            linewidth=1,
+            alpha=0.55
+        )
+        ax.add_patch(back)
+
+    # Puertas (cara frontal tapada)
+    if door_count > 0:
+        if door_count >= 2:
+            mid_x = x + width / 2
+            ax.add_patch(patches.Rectangle((x, y), width / 2, height, facecolor='#DCEEFF', edgecolor='#3E6480', linewidth=1, alpha=0.45))
+            ax.add_patch(patches.Rectangle((mid_x, y), width / 2, height, facecolor='#DCEEFF', edgecolor='#3E6480', linewidth=1, alpha=0.45))
+            ax.plot([mid_x, mid_x], [y, y + height], color='#3E6480', linewidth=1.5)
+        else:
+            ax.add_patch(patches.Rectangle((x, y), width, height, facecolor='#DCEEFF', edgecolor='#3E6480', linewidth=1.2, alpha=0.45))
+
+    return dx, dy
+
 st.title("📁 Gestión de Proyectos")
 
 # Modo de vista
@@ -290,11 +353,16 @@ elif st.session_state.project_mode == 'edit':
         # Obtener materiales
         try:
             materials_list = firebase.get_all_materials()
-            material_options = [f"{m['type']} {m.get('color', '')} {m.get('thickness_mm', '')}mm" for m in materials_list]
             materials_dict = {f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m for m in materials_list}
+            material_options = list(materials_dict.keys())
+            material_labels = {
+                key: f"{m['type']} {m.get('color', '')} {m.get('thickness_mm', '')}mm".strip()
+                for key, m in materials_dict.items()
+            }
         except:
             material_options = []
             materials_dict = {}
+            material_labels = {}
         
         if st.button("➕ Agregar Módulo"):
             if 'modules' not in project:
@@ -305,6 +373,7 @@ elif st.session_state.project_mode == 'edit':
                 'ancho_mm': 1000,
                 'profundo_mm': 400,
                 'material': '',
+                'material_fondo': '',
                 'tiene_fondo': False,
                 'tiene_puertas': False,
                 'cantidad_puertas': 0,
@@ -326,10 +395,28 @@ elif st.session_state.project_mode == 'edit':
                     with col2:
                         material_value = module.get('material', '')
                         if material_options:
-                            selected_mat = st.selectbox("Material", material_options, key=f"mod_mat_{idx}")
-                            material_value = selected_mat.replace(' ', '_').replace('mm', '')
+                            default_index = material_options.index(material_value) if material_value in material_options else 0
+                            material_value = st.selectbox(
+                                "Material",
+                                material_options,
+                                index=default_index,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_mat_{idx}"
+                            )
 
                         tiene_fondo = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
+
+                        material_fondo = module.get('material_fondo', module.get('material', ''))
+                        if tiene_fondo and material_options:
+                            back_default_index = material_options.index(material_fondo) if material_fondo in material_options else 0
+                            material_fondo = st.selectbox(
+                                "Material fondo",
+                                material_options,
+                                index=back_default_index,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_back_mat_{idx}"
+                            )
+
                         tiene_puertas = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
 
                         cantidad_puertas = module.get('cantidad_puertas', 1)
@@ -346,6 +433,7 @@ elif st.session_state.project_mode == 'edit':
                         module['profundo_mm'] = profundo
                         module['material'] = material_value
                         module['tiene_fondo'] = tiene_fondo
+                        module['material_fondo'] = material_fondo if tiene_fondo else ''
                         module['tiene_puertas'] = tiene_puertas
                         module['cantidad_puertas'] = cantidad_puertas if tiene_puertas else 0
                         module['cantidad_estantes'] = cantidad_estantes
@@ -401,8 +489,15 @@ elif st.session_state.project_mode == 'edit':
                     shelf['cantidad'] = st.number_input("Cantidad", value=shelf.get('cantidad', 1), min_value=1, key=f"shelf_cant_{idx}")
                 
                 if material_options:
-                    selected_mat = st.selectbox("Material", material_options, key=f"shelf_mat_{idx}")
-                    shelf['material'] = selected_mat.replace(' ', '_').replace('mm', '')
+                    material_value = shelf.get('material', '')
+                    default_index = material_options.index(material_value) if material_value in material_options else 0
+                    shelf['material'] = st.selectbox(
+                        "Material",
+                        material_options,
+                        index=default_index,
+                        format_func=lambda x: material_labels.get(x, x),
+                        key=f"shelf_mat_{idx}"
+                    )
                 
                 if st.button(f"🗑️ Eliminar estante {idx + 1}", key=f"del_shelf_{idx}"):
                     project['shelves'].pop(idx)
@@ -453,8 +548,15 @@ elif st.session_state.project_mode == 'edit':
                     wood['cantidad'] = st.number_input("Cantidad", value=wood.get('cantidad', 1), min_value=1, key=f"wood_cant_{idx}")
                 
                 if material_options:
-                    selected_mat = st.selectbox("Material", material_options, key=f"wood_mat_{idx}")
-                    wood['material'] = selected_mat.replace(' ', '_').replace('mm', '')
+                    material_value = wood.get('material', '')
+                    default_index = material_options.index(material_value) if material_value in material_options else 0
+                    wood['material'] = st.selectbox(
+                        "Material",
+                        material_options,
+                        index=default_index,
+                        format_func=lambda x: material_labels.get(x, x),
+                        key=f"wood_mat_{idx}"
+                    )
                 
                 if st.button(f"🗑️ Eliminar madera {idx + 1}", key=f"del_wood_{idx}"):
                     project['woods'].pop(idx)
@@ -504,10 +606,14 @@ elif st.session_state.project_mode == 'edit':
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    selected_hw = st.selectbox("Tipo", hardware_options, key=f"hw_type_{idx}")
-                    
-                    if selected_hw == "Personalizado":
-                        hardware['type'] = st.text_input("Nombre personalizado", hardware.get('type', ''), key=f"hw_custom_{idx}")
+                    current_hw_type = hardware.get('type', '')
+                    default_hw = current_hw_type if current_hw_type in hardware_dict else "Personalizado"
+                    default_index = hardware_options.index(default_hw) if default_hw in hardware_options else 0
+                    selected_hw = st.selectbox("Tipo", hardware_options, index=default_index, key=f"hw_type_{idx}")
+
+                    is_custom_hardware = selected_hw == "Personalizado"
+                    if is_custom_hardware:
+                        hardware['type'] = st.text_input("Nombre personalizado", current_hw_type, key=f"hw_custom_{idx}")
                     else:
                         hardware['type'] = selected_hw
                         if selected_hw in hardware_dict:
@@ -517,7 +623,13 @@ elif st.session_state.project_mode == 'edit':
                     hardware['quantity'] = st.number_input("Cantidad", value=hardware.get('quantity', 1), min_value=0, key=f"hw_qty_{idx}")
                 
                 with col3:
-                    hardware['price_unit'] = st.number_input("Precio unitario (€)", value=hardware.get('price_unit', 0.0), key=f"hw_price_{idx}")
+                    hardware['price_unit'] = st.number_input(
+                        "Precio unitario (€)",
+                        value=hardware.get('price_unit', 0.0),
+                        key=f"hw_price_{idx}",
+                        disabled=not is_custom_hardware,
+                        help="Solo editable para herrajes personalizados"
+                    )
                 
                 if st.button(f"🗑️ Eliminar herraje {idx + 1}", key=f"del_hw_{idx}"):
                     project['hardwares'].pop(idx)
@@ -611,125 +723,139 @@ elif st.session_state.project_mode == 'edit':
     with tabs[5]:
         st.subheader("📊 Vista Gráfica")
         
-        # Dibujar módulos
+        # Dibujar módulos juntos
         if project.get('modules'):
             st.markdown("### Módulos")
-            
-            for idx, module in enumerate(project['modules']):
-                st.markdown(f"**{module.get('nombre', f'Módulo {idx+1}')}**")
-                
-                fig, ax = plt.subplots(figsize=(8, 6))
-                
+
+            modules = project['modules']
+            max_alto = max([m.get('alto_mm', 2000) for m in modules])
+            max_prof = max([m.get('profundo_mm', 400) for m in modules])
+            fig, ax = plt.subplots(figsize=(max(7, min(14, len(modules) * 2.4)), 3.8))
+
+            x_cursor = 0
+            for idx, module in enumerate(modules):
                 alto = module.get('alto_mm', 2000)
                 ancho = module.get('ancho_mm', 1000)
                 profundo = module.get('profundo_mm', 400)
-                
-                # Dibujar caja isométrica
-                dx, dy = draw_isometric_box(ax, 0, 0, ancho, alto, profundo)
-                
-                # Indicar si tiene fondo
-                if module.get('tiene_fondo'):
-                    ax.text(ancho/2, alto/2, 'CON FONDO', ha='center', va='center', fontsize=12, weight='bold')
-                
-                # Dibujar estantes
-                num_estantes = module.get('cantidad_estantes', 0)
-                if num_estantes > 0:
-                    spacing = alto / (num_estantes + 1)
-                    for i in range(1, num_estantes + 1):
-                        y_pos = i * spacing
-                        ax.plot([0, ancho], [y_pos, y_pos], 'r--', linewidth=1.5)
-                        ax.plot([ancho, ancho + dx], [y_pos, y_pos + dy], 'r--', linewidth=1)
-                
-                # Dibujar divisiones
-                num_divisiones = module.get('cantidad_divisiones', 0)
-                if num_divisiones > 0:
-                    spacing = ancho / (num_divisiones + 1)
-                    for i in range(1, num_divisiones + 1):
-                        x_pos = i * spacing
-                        ax.plot([x_pos, x_pos], [0, alto], 'g--', linewidth=1.5)
-                        ax.plot([x_pos, x_pos + dx], [alto, alto + dy], 'g--', linewidth=1)
-                
-                # Indicar puertas
-                if module.get('tiene_puertas'):
-                    num_puertas = module.get('cantidad_puertas', 1)
-                    ax.text(ancho/2, -alto*0.1, f'🚪 {num_puertas} puerta(s)', ha='center', fontsize=10)
-                
-                # Anotaciones de medidas
-                ax.text(ancho/2, -alto*0.05, f'{ancho} mm', ha='center', fontsize=10)
-                ax.text(-ancho*0.1, alto/2, f'{alto} mm', ha='right', va='center', rotation=90, fontsize=10)
-                ax.text(ancho + dx*0.7, alto/2 + dy, f'Prof: {profundo} mm', ha='left', va='center', fontsize=9)
-                
-                ax.set_xlim(-ancho*0.2, ancho + dx + ancho*0.2)
-                ax.set_ylim(-alto*0.2, alto + dy + alto*0.1)
-                ax.set_aspect('equal')
-                ax.axis('off')
-                
-                st.pyplot(fig)
-                plt.close()
-        
-        # Dibujar estantes
-        if project.get('shelves'):
-            st.markdown("### Estantes Independientes")
-            
-            fig, ax = plt.subplots(figsize=(10, 5))
-            
-            y_offset = 0
-            for idx, shelf in enumerate(project['shelves']):
-                ancho = shelf.get('ancho_mm', 800)
-                profundo = shelf.get('profundo_mm', 300)
-                cantidad = shelf.get('cantidad', 1)
-                
-                for i in range(cantidad):
-                    dx, dy = draw_isometric_box(
-                        ax,
-                        0,
-                        y_offset,
-                        ancho,
-                        50,
-                        profundo,
-                        face_color='wheat',
-                        side_color='#D2B48C',
-                        top_color='#F5DEB3'
-                    )
-                    ax.text(ancho/2, y_offset + 25, f'{ancho}x{profundo}mm',
-                           ha='center', va='center', fontsize=8)
-                    y_offset += 90
 
-            max_ancho = max([s.get('ancho_mm', 800) for s in project['shelves']])
-            max_prof = max([s.get('profundo_mm', 300) for s in project['shelves']])
-            ax.set_xlim(-100, max_ancho + (max_prof * 0.45) + 120)
-            ax.set_ylim(-50, y_offset + 50)
+                puertas = module.get('cantidad_puertas', 0) if module.get('tiene_puertas') else 0
+                dx, dy = draw_module_structure(
+                    ax,
+                    x_cursor,
+                    0,
+                    ancho,
+                    alto,
+                    profundo,
+                    has_back=module.get('tiene_fondo', False),
+                    door_count=puertas
+                )
+
+                estantes = module.get('cantidad_estantes', 0)
+                if estantes > 0:
+                    spacing = alto / (estantes + 1)
+                    for i in range(1, estantes + 1):
+                        y_pos = i * spacing
+                        ax.plot([x_cursor + 25, x_cursor + ancho - 25], [y_pos, y_pos], linestyle='--', color='#C62828', linewidth=1)
+
+                divisiones = module.get('cantidad_divisiones', 0)
+                if divisiones > 0:
+                    spacing = ancho / (divisiones + 1)
+                    for i in range(1, divisiones + 1):
+                        x_pos = x_cursor + i * spacing
+                        ax.plot([x_pos, x_pos], [25, alto - 25], linestyle='--', color='#2E7D32', linewidth=1)
+
+                label = module.get('nombre', f'Módulo {idx+1}')
+                dim_label = format_dimensions(ancho, alto, profundo)
+                if module.get('tiene_fondo'):
+                    dim_label += " • Fondo"
+                if puertas > 0:
+                    dim_label += f" • {puertas} puerta(s)"
+
+                ax.text(x_cursor + ancho / 2, -max_alto * 0.09, label, ha='center', va='top', fontsize=8, weight='bold')
+                ax.text(x_cursor + ancho / 2, -max_alto * 0.15, dim_label, ha='center', va='top', fontsize=7)
+
+                x_cursor += ancho + dx + max(160, ancho * 0.2)
+
+            ax.set_xlim(-80, x_cursor)
+            ax.set_ylim(-max_alto * 0.23, max_alto + (max_prof * 0.35) + 60)
             ax.set_aspect('equal')
             ax.axis('off')
-            
+
             st.pyplot(fig)
             plt.close()
-        
-        # Dibujar maderas
-        if project.get('woods'):
-            st.markdown("### Maderas Independientes")
-            
-            fig, ax = plt.subplots(figsize=(8, 4))
-            
-            y_offset = 0
-            for idx, wood in enumerate(project['woods']):
-                ancho = wood.get('ancho_mm', 500)
-                profundo = wood.get('profundo_mm', 200)
-                cantidad = wood.get('cantidad', 1)
-                
-                for i in range(cantidad):
-                    rect = patches.Rectangle((0, y_offset), ancho, 40, linewidth=1, 
-                                            edgecolor='saddlebrown', facecolor='burlywood', alpha=0.7)
-                    ax.add_patch(rect)
-                    ax.text(ancho/2, y_offset + 20, f'{ancho}x{profundo}mm', 
-                           ha='center', va='center', fontsize=8)
-                    y_offset += 60
-            
-            ax.set_xlim(-100, max([w.get('ancho_mm', 500) for w in project['woods']]) + 100)
-            ax.set_ylim(-50, y_offset + 50)
+
+        # Dibujar estantes juntos
+        if project.get('shelves'):
+            st.markdown("### Estantes Independientes")
+
+            shelves = []
+            for shelf in project['shelves']:
+                for _ in range(max(1, shelf.get('cantidad', 1))):
+                    shelves.append(shelf)
+
+            max_ancho = max([s.get('ancho_mm', 800) for s in shelves])
+            max_prof = max([s.get('profundo_mm', 300) for s in shelves])
+            fig, ax = plt.subplots(figsize=(max(7, min(14, len(shelves) * 1.8)), 2.8))
+
+            x_cursor = 0
+            shelf_height = 45
+            for idx, shelf in enumerate(shelves):
+                ancho = shelf.get('ancho_mm', 800)
+                profundo = shelf.get('profundo_mm', 300)
+
+                dx, _ = draw_isometric_box(
+                    ax,
+                    x_cursor,
+                    0,
+                    ancho,
+                    shelf_height,
+                    profundo,
+                    face_color='wheat',
+                    side_color='#D2B48C',
+                    top_color='#F5DEB3'
+                )
+
+                ax.text(x_cursor + ancho / 2, -90, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7)
+                x_cursor += ancho + dx + max(120, ancho * 0.15)
+
+            ax.set_xlim(-50, x_cursor)
+            ax.set_ylim(-120, shelf_height + (max_prof * 0.4) + 60)
             ax.set_aspect('equal')
             ax.axis('off')
-            
+
+            st.pyplot(fig)
+            plt.close()
+
+        # Dibujar maderas juntas
+        if project.get('woods'):
+            st.markdown("### Maderas Independientes")
+
+            woods = []
+            for wood in project['woods']:
+                for _ in range(max(1, wood.get('cantidad', 1))):
+                    woods.append(wood)
+
+            max_prof = max([w.get('profundo_mm', 200) for w in woods])
+            fig, ax = plt.subplots(figsize=(max(7, min(14, len(woods) * 1.8)), 2.8))
+
+            x_cursor = 0
+            wood_height = 40
+            for wood in woods:
+                ancho = wood.get('ancho_mm', 500)
+                profundo = wood.get('profundo_mm', 200)
+
+                rect = patches.Rectangle((x_cursor, 0), ancho, wood_height, linewidth=1.2,
+                                        edgecolor='saddlebrown', facecolor='burlywood', alpha=0.75)
+                ax.add_patch(rect)
+                ax.text(x_cursor + ancho / 2, -75, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7)
+
+                x_cursor += ancho + max(120, ancho * 0.15)
+
+            ax.set_xlim(-50, x_cursor)
+            ax.set_ylim(-105, wood_height + (max_prof * 0.05) + 50)
+            ax.set_aspect('equal')
+            ax.axis('off')
+
             st.pyplot(fig)
             plt.close()
     
