@@ -156,6 +156,15 @@ class CalculationService:
         
         # 2. Calcular superficie de una tabla
         board_m2 = CalculationService.mm_to_m2(board_height_mm, board_width_mm)
+        if board_m2 <= 0:
+            return {
+                'm2_sin_desperdicio': m2_total,
+                'm2_con_desperdicio': m2_con_desperdicio,
+                'board_m2': board_m2,
+                'boards_needed': 0,
+                'board_price': board_price,
+                'material_cost': 0.0
+            }
         
         # 3. Calcular cantidad de tablas necesarias
         boards_needed = math.ceil(m2_con_desperdicio / board_m2)
