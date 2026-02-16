@@ -1,7 +1,7 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, KeepInFrame
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from io import BytesIO
@@ -86,6 +86,7 @@ class PDFService:
         )
 
         story = []
+        content_story = []
 
         # Encabezado con logo + datos de emisión
         header_left = []
@@ -118,8 +119,8 @@ class PDFService:
             ('LINEBELOW', (0, 0), (-1, 0), 0.8, colors.HexColor('#1F3A5F')),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ]))
-        story.append(header_table)
-        story.append(Spacer(1, 0.35 * cm))
+        content_story.append(header_table)
+        content_story.append(Spacer(1, 0.35 * cm))
 
         # Datos del cliente/proyecto
         client_data = [
@@ -140,11 +141,11 @@ class PDFService:
             ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
             ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#D0D7DE')),
         ]))
-        story.append(client_table)
-        story.append(Spacer(1, 0.45 * cm))
+        content_story.append(client_table)
+        content_story.append(Spacer(1, 0.45 * cm))
 
         # Materiales
-        story.append(Paragraph("1. Materiales", section_style))
+        content_story.append(Paragraph("1. Materiales", section_style))
         material_data = [['Material', 'm² con desperdicio', 'Tablas', 'Importe']] if calculations['material_costs'] else [['Material', 'm² con desperdicio', 'Tablas', 'Importe'], ['Sin materiales', '-', '-', '0.00 €']]
 
         for material_key, cost_data in calculations['material_costs'].items():
@@ -161,27 +162,30 @@ class PDFService:
         materials_table.setStyle(TableStyle([
             ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
         ]),)
-        story.append(materials_table)
-        story.append(Spacer(1, 0.3 * cm))
+        content_story.append(materials_table)
+        content_story.append(Spacer(1, 0.3 * cm))
 
         material_total = sum(cost['material_cost'] for cost in calculations['material_costs'].values())
 
         # Otros conceptos
-        story.append(Paragraph("2. Servicios y mano de obra", section_style))
+        content_story.append(Paragraph("2. Servicios y mano de obra", section_style))
         service_data = [
             ['Concepto', 'Importe'],
             ['Corte y canto', f"{calculations['cutting_cost']:.2f} €"],
             ['Mano de obra y montaje', f"{calculations['labor_for_invoice']:.2f} €"],
         ]
+        discount_for_invoice = calculations.get('discount_for_invoice', 0.0)
+        if discount_for_invoice > 0:
+            service_data.append(['Descuento', f"-{discount_for_invoice:.2f} €"])
         services_table = PDFService._create_table(service_data, [14.1 * cm, 2.5 * cm])
         services_table.setStyle(TableStyle([
             ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
         ]))
-        story.append(services_table)
+        content_story.append(services_table)
 
         if calculations['hardware_total'] > 0:
-            story.append(Spacer(1, 0.3 * cm))
-            story.append(Paragraph("3. Herrajes", section_style))
+            content_story.append(Spacer(1, 0.3 * cm))
+            content_story.append(Paragraph("3. Herrajes", section_style))
             hardware_data = [['Concepto', 'Cant.', 'P. unitario', 'Importe']]
             for hardware in project_data.get('hardwares', []):
                 quantity = hardware.get('quantity', 0)
@@ -201,9 +205,9 @@ class PDFService:
             hardware_table.setStyle(TableStyle([
                 ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
             ]))
-            story.append(hardware_table)
+            content_story.append(hardware_table)
 
-        story.append(Spacer(1, 0.55 * cm))
+        content_story.append(Spacer(1, 0.55 * cm))
 
         # Resumen final
         cutting_cost = calculations['cutting_cost']
@@ -217,8 +221,10 @@ class PDFService:
             ['Subtotal corte y canto', f"{cutting_cost:.2f} €"],
             ['Subtotal herrajes', f"{hardware_total:.2f} €"],
             ['Mano de obra y montaje', f"{labor_total:.2f} €"],
-            ['TOTAL PRESUPUESTADO', f"{final_price:.2f} €"],
         ]
+        if discount_for_invoice > 0:
+            summary_data.append(['Descuento', f"-{discount_for_invoice:.2f} €"])
+        summary_data.append(['TOTAL PRESUPUESTADO', f"{final_price:.2f} €"])
         summary_table = Table(summary_data, colWidths=[11.6 * cm, 5.0 * cm])
         summary_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#12263A')),
@@ -237,13 +243,17 @@ class PDFService:
             ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#D0D7DE')),
             ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F8FAFC')]),
         ]))
-        story.append(summary_table)
+        content_story.append(summary_table)
 
-        story.append(Spacer(1, 0.5 * cm))
-        story.append(Paragraph(
+        content_story.append(Spacer(1, 0.5 * cm))
+        content_story.append(Paragraph(
             "<b>Condiciones:</b> Presupuesto válido por 15 días. Incluye fabricación y montaje según especificaciones del proyecto.",
             normal_style,
         ))
+
+        available_width = A4[0] - doc.leftMargin - doc.rightMargin
+        available_height = A4[1] - doc.topMargin - doc.bottomMargin
+        story.append(KeepInFrame(available_width, available_height, content_story, mode='shrink'))
 
         doc.build(story)
         buffer.seek(0)

@@ -226,11 +226,10 @@ class CalculationService:
         """
         Calcula la mano de obra que debe aparecer en el PDF.
 
-        Evita resultados negativos cuando el precio final no supera
-        los costos base del proyecto.
+        Puede ser negativo cuando el precio final tiene descuento.
         """
         labor_invoice = labor_cost_project + extra_complexity + (final_price - total_calculated)
-        return max(0.0, labor_invoice)
+        return labor_invoice
     
     @staticmethod
     def calculate_all_project_costs(project_data: Dict, 
@@ -308,13 +307,15 @@ class CalculationService:
         # Precio final (por defecto = total calculado)
         final_price = project_data.get('final_price', total_calculated)
         
-        # Mano de obra para factura
-        labor_for_invoice = CalculationService.calculate_labor_for_invoice(
+        # Mano de obra para factura (si es negativa, pasa a descuento)
+        labor_invoice_raw = CalculationService.calculate_labor_for_invoice(
             project_data.get('labor_cost_project', 0.0),
             project_data.get('extra_complexity', 0.0),
             final_price,
             total_calculated
         )
+        labor_for_invoice = max(0.0, labor_invoice_raw)
+        discount_for_invoice = max(0.0, -labor_invoice_raw)
         
         return {
             'all_surfaces': all_surfaces,
@@ -325,5 +326,6 @@ class CalculationService:
             'total_calculated': total_calculated,
             'final_price': final_price,
             'labor_for_invoice': labor_for_invoice,
+            'discount_for_invoice': discount_for_invoice,
             'total_m2_con_desperdicio': total_m2_con_desperdicio
         }
