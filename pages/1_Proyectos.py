@@ -5,6 +5,7 @@ from services.pdf_service import PDFService
 from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.patches import Polygon
 
 # Inicializar Firebase
 def get_firebase():
@@ -20,6 +21,77 @@ def get_firebase():
     return st.session_state.firebase
 
 firebase = get_firebase()
+
+
+def save_project_data(firebase_service, project_id, project_name, project_client, project_date, project_status, project_data):
+    """Guarda los datos actuales del proyecto"""
+    payload = {
+        'name': project_name,
+        'client': project_client,
+        'date': datetime.combine(project_date, datetime.min.time()),
+        'status': project_status,
+        'modules': project_data.get('modules', []),
+        'shelves': project_data.get('shelves', []),
+        'woods': project_data.get('woods', []),
+        'hardwares': project_data.get('hardwares', []),
+        'labor_cost_project': project_data.get('labor_cost_project', 0.0),
+        'extra_complexity': project_data.get('extra_complexity', 0.0),
+        'final_price': project_data.get('final_price', 0.0)
+    }
+
+    if project_id:
+        firebase_service.update_project(project_id, payload)
+        return project_id, "✅ Proyecto actualizado correctamente"
+
+    new_id = firebase_service.create_project(payload)
+    return new_id, "✅ Proyecto creado correctamente"
+
+
+def draw_isometric_box(ax, x, y, width, height, depth, face_color='#ADD8E6', side_color='#8FB8D8', top_color='#C6E2F5'):
+    """Dibuja una caja en vista isométrica"""
+    dx = depth * 0.45
+    dy = depth * 0.3
+
+    front = Polygon(
+        [(x, y), (x + width, y), (x + width, y + height), (x, y + height)],
+        closed=True,
+        facecolor=face_color,
+        edgecolor='black',
+        linewidth=1.5,
+        alpha=0.8
+    )
+    side = Polygon(
+        [
+            (x + width, y),
+            (x + width + dx, y + dy),
+            (x + width + dx, y + height + dy),
+            (x + width, y + height),
+        ],
+        closed=True,
+        facecolor=side_color,
+        edgecolor='black',
+        linewidth=1.2,
+        alpha=0.8
+    )
+    top = Polygon(
+        [
+            (x, y + height),
+            (x + width, y + height),
+            (x + width + dx, y + height + dy),
+            (x + dx, y + height + dy),
+        ],
+        closed=True,
+        facecolor=top_color,
+        edgecolor='black',
+        linewidth=1.2,
+        alpha=0.8
+    )
+
+    ax.add_patch(front)
+    ax.add_patch(side)
+    ax.add_patch(top)
+
+    return dx, dy
 
 st.title("📁 Gestión de Proyectos")
 
@@ -154,26 +226,18 @@ elif st.session_state.project_mode == 'edit':
     with col_save:
         if st.button("💾 Guardar Proyecto", type="primary", use_container_width=True):
             try:
-                project_data = {
-                    'name': project_name,
-                    'client': project_client,
-                    'date': datetime.combine(project_date, datetime.min.time()),
-                    'status': project_status,
-                    'modules': project.get('modules', []),
-                    'shelves': project.get('shelves', []),
-                    'woods': project.get('woods', []),
-                    'hardwares': project.get('hardwares', []),
-                    'labor_cost_project': project.get('labor_cost_project', 0.0),
-                    'extra_complexity': project.get('extra_complexity', 0.0)
-                }
-                
-                if st.session_state.current_project_id:
-                    firebase.update_project(st.session_state.current_project_id, project_data)
-                    st.success("✅ Proyecto actualizado correctamente")
-                else:
-                    new_id = firebase.create_project(project_data)
-                    st.session_state.current_project_id = new_id
-                    st.success("✅ Proyecto creado correctamente")
+                current_id, success_msg = save_project_data(
+                    firebase,
+                    st.session_state.current_project_id,
+                    project_name,
+                    project_client,
+                    project_date,
+                    project_status,
+                    project
+                )
+                st.session_state.current_project_id = current_id
+                st.success(success_msg)
+                if "creado" in success_msg:
                     st.rerun()
             except Exception as e:
                 st.error(f"Error guardando proyecto: {str(e)}")
@@ -226,31 +290,63 @@ elif st.session_state.project_mode == 'edit':
         
         for idx, module in enumerate(project.get('modules', [])):
             with st.expander(f"Módulo {idx + 1}: {module.get('nombre', '')}"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    module['nombre'] = st.text_input("Nombre", module.get('nombre', ''), key=f"mod_name_{idx}")
-                    module['alto_mm'] = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
-                    module['ancho_mm'] = st.number_input("Ancho (mm)", value=module.get('ancho_mm', 1000), key=f"mod_ancho_{idx}")
-                    module['profundo_mm'] = st.number_input("Profundidad (mm)", value=module.get('profundo_mm', 400), key=f"mod_prof_{idx}")
-                
-                with col2:
-                    if material_options:
-                        selected_mat = st.selectbox("Material", material_options, key=f"mod_mat_{idx}")
-                        module['material'] = selected_mat.replace(' ', '_').replace('mm', '')
-                    
-                    module['tiene_fondo'] = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
-                    module['tiene_puertas'] = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
-                    
-                    if module['tiene_puertas']:
-                        module['cantidad_puertas'] = st.number_input("Cantidad puertas", value=module.get('cantidad_puertas', 1), min_value=0, key=f"mod_cant_puertas_{idx}")
-                    
-                    module['cantidad_estantes'] = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
-                    module['cantidad_divisiones'] = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
+                with st.form(key=f"module_form_{idx}"):
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        nombre = st.text_input("Nombre", module.get('nombre', ''), key=f"mod_name_{idx}")
+                        alto = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
+                        ancho = st.number_input("Ancho (mm)", value=module.get('ancho_mm', 1000), key=f"mod_ancho_{idx}")
+                        profundo = st.number_input("Profundidad (mm)", value=module.get('profundo_mm', 400), key=f"mod_prof_{idx}")
+
+                    with col2:
+                        material_value = module.get('material', '')
+                        if material_options:
+                            selected_mat = st.selectbox("Material", material_options, key=f"mod_mat_{idx}")
+                            material_value = selected_mat.replace(' ', '_').replace('mm', '')
+
+                        tiene_fondo = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
+                        tiene_puertas = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
+
+                        cantidad_puertas = module.get('cantidad_puertas', 1)
+                        if tiene_puertas:
+                            cantidad_puertas = st.number_input("Cantidad puertas", value=module.get('cantidad_puertas', 1), min_value=0, key=f"mod_cant_puertas_{idx}")
+
+                        cantidad_estantes = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
+                        cantidad_divisiones = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
+
+                    if st.form_submit_button("Aplicar cambios", use_container_width=True):
+                        module['nombre'] = nombre
+                        module['alto_mm'] = alto
+                        module['ancho_mm'] = ancho
+                        module['profundo_mm'] = profundo
+                        module['material'] = material_value
+                        module['tiene_fondo'] = tiene_fondo
+                        module['tiene_puertas'] = tiene_puertas
+                        module['cantidad_puertas'] = cantidad_puertas if tiene_puertas else 0
+                        module['cantidad_estantes'] = cantidad_estantes
+                        module['cantidad_divisiones'] = cantidad_divisiones
+                        st.success("Cambios del módulo aplicados")
                 
                 if st.button(f"🗑️ Eliminar módulo {idx + 1}", key=f"del_mod_{idx}"):
                     project['modules'].pop(idx)
                     st.rerun()
+
+        if st.button("💾 Guardar cambios de módulos", key="save_modules", type="primary", use_container_width=True):
+            try:
+                current_id, success_msg = save_project_data(
+                    firebase,
+                    st.session_state.current_project_id,
+                    project_name,
+                    project_client,
+                    project_date,
+                    project_status,
+                    project
+                )
+                st.session_state.current_project_id = current_id
+                st.success(success_msg)
+            except Exception as e:
+                st.error(f"Error guardando cambios de módulos: {str(e)}")
     
     # TAB: ESTANTES
     with tabs[1]:
@@ -286,6 +382,22 @@ elif st.session_state.project_mode == 'edit':
                 if st.button(f"🗑️ Eliminar estante {idx + 1}", key=f"del_shelf_{idx}"):
                     project['shelves'].pop(idx)
                     st.rerun()
+
+        if st.button("💾 Guardar cambios de estantes", key="save_shelves", use_container_width=True):
+            try:
+                current_id, success_msg = save_project_data(
+                    firebase,
+                    st.session_state.current_project_id,
+                    project_name,
+                    project_client,
+                    project_date,
+                    project_status,
+                    project
+                )
+                st.session_state.current_project_id = current_id
+                st.success(success_msg)
+            except Exception as e:
+                st.error(f"Error guardando cambios de estantes: {str(e)}")
     
     # TAB: MADERAS
     with tabs[2]:
@@ -321,6 +433,22 @@ elif st.session_state.project_mode == 'edit':
                 if st.button(f"🗑️ Eliminar madera {idx + 1}", key=f"del_wood_{idx}"):
                     project['woods'].pop(idx)
                     st.rerun()
+
+        if st.button("💾 Guardar cambios de maderas", key="save_woods", use_container_width=True):
+            try:
+                current_id, success_msg = save_project_data(
+                    firebase,
+                    st.session_state.current_project_id,
+                    project_name,
+                    project_client,
+                    project_date,
+                    project_status,
+                    project
+                )
+                st.session_state.current_project_id = current_id
+                st.success(success_msg)
+            except Exception as e:
+                st.error(f"Error guardando cambios de maderas: {str(e)}")
     
     # TAB: HERRAJES
     with tabs[3]:
@@ -367,6 +495,22 @@ elif st.session_state.project_mode == 'edit':
                 if st.button(f"🗑️ Eliminar herraje {idx + 1}", key=f"del_hw_{idx}"):
                     project['hardwares'].pop(idx)
                     st.rerun()
+
+        if st.button("💾 Guardar cambios de herrajes", key="save_hardwares", use_container_width=True):
+            try:
+                current_id, success_msg = save_project_data(
+                    firebase,
+                    st.session_state.current_project_id,
+                    project_name,
+                    project_client,
+                    project_date,
+                    project_status,
+                    project
+                )
+                st.session_state.current_project_id = current_id
+                st.success(success_msg)
+            except Exception as e:
+                st.error(f"Error guardando cambios de herrajes: {str(e)}")
     
     # TAB: COSTOS
     with tabs[4]:
@@ -452,9 +596,8 @@ elif st.session_state.project_mode == 'edit':
                 ancho = module.get('ancho_mm', 1000)
                 profundo = module.get('profundo_mm', 400)
                 
-                # Dibujar rectángulo frontal
-                rect = patches.Rectangle((0, 0), ancho, alto, linewidth=2, edgecolor='black', facecolor='lightblue', alpha=0.5)
-                ax.add_patch(rect)
+                # Dibujar caja isométrica
+                dx, dy = draw_isometric_box(ax, 0, 0, ancho, alto, profundo)
                 
                 # Indicar si tiene fondo
                 if module.get('tiene_fondo'):
@@ -467,6 +610,7 @@ elif st.session_state.project_mode == 'edit':
                     for i in range(1, num_estantes + 1):
                         y_pos = i * spacing
                         ax.plot([0, ancho], [y_pos, y_pos], 'r--', linewidth=1.5)
+                        ax.plot([ancho, ancho + dx], [y_pos, y_pos + dy], 'r--', linewidth=1)
                 
                 # Dibujar divisiones
                 num_divisiones = module.get('cantidad_divisiones', 0)
@@ -475,6 +619,7 @@ elif st.session_state.project_mode == 'edit':
                     for i in range(1, num_divisiones + 1):
                         x_pos = i * spacing
                         ax.plot([x_pos, x_pos], [0, alto], 'g--', linewidth=1.5)
+                        ax.plot([x_pos, x_pos + dx], [alto, alto + dy], 'g--', linewidth=1)
                 
                 # Indicar puertas
                 if module.get('tiene_puertas'):
@@ -484,10 +629,10 @@ elif st.session_state.project_mode == 'edit':
                 # Anotaciones de medidas
                 ax.text(ancho/2, -alto*0.05, f'{ancho} mm', ha='center', fontsize=10)
                 ax.text(-ancho*0.1, alto/2, f'{alto} mm', ha='right', va='center', rotation=90, fontsize=10)
-                ax.text(ancho + ancho*0.05, alto/2, f'Prof: {profundo} mm', ha='left', va='center', fontsize=9)
+                ax.text(ancho + dx*0.7, alto/2 + dy, f'Prof: {profundo} mm', ha='left', va='center', fontsize=9)
                 
-                ax.set_xlim(-ancho*0.2, ancho*1.2)
-                ax.set_ylim(-alto*0.2, alto*1.1)
+                ax.set_xlim(-ancho*0.2, ancho + dx + ancho*0.2)
+                ax.set_ylim(-alto*0.2, alto + dy + alto*0.1)
                 ax.set_aspect('equal')
                 ax.axis('off')
                 
@@ -498,7 +643,7 @@ elif st.session_state.project_mode == 'edit':
         if project.get('shelves'):
             st.markdown("### Estantes Independientes")
             
-            fig, ax = plt.subplots(figsize=(8, 4))
+            fig, ax = plt.subplots(figsize=(10, 5))
             
             y_offset = 0
             for idx, shelf in enumerate(project['shelves']):
@@ -507,14 +652,24 @@ elif st.session_state.project_mode == 'edit':
                 cantidad = shelf.get('cantidad', 1)
                 
                 for i in range(cantidad):
-                    rect = patches.Rectangle((0, y_offset), ancho, 50, linewidth=1, 
-                                            edgecolor='brown', facecolor='wheat', alpha=0.7)
-                    ax.add_patch(rect)
-                    ax.text(ancho/2, y_offset + 25, f'{ancho}x{profundo}mm', 
+                    dx, dy = draw_isometric_box(
+                        ax,
+                        0,
+                        y_offset,
+                        ancho,
+                        50,
+                        profundo,
+                        face_color='wheat',
+                        side_color='#D2B48C',
+                        top_color='#F5DEB3'
+                    )
+                    ax.text(ancho/2, y_offset + 25, f'{ancho}x{profundo}mm',
                            ha='center', va='center', fontsize=8)
-                    y_offset += 70
-            
-            ax.set_xlim(-100, max([s.get('ancho_mm', 800) for s in project['shelves']]) + 100)
+                    y_offset += 90
+
+            max_ancho = max([s.get('ancho_mm', 800) for s in project['shelves']])
+            max_prof = max([s.get('profundo_mm', 300) for s in project['shelves']])
+            ax.set_xlim(-100, max_ancho + (max_prof * 0.45) + 120)
             ax.set_ylim(-50, y_offset + 50)
             ax.set_aspect('equal')
             ax.axis('off')
