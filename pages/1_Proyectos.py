@@ -69,20 +69,12 @@ def serialize_project_state(project_data):
 
 
 def enable_unsaved_changes_guard(enabled):
-    """Muestra alerta nativa del navegador al salir con cambios sin guardar."""
-    if enabled:
-        components.html(
-            """
-            <script>
-                window.onbeforeunload = function () {
-                    return 'Hay cambios sin guardar. ¿Seguro que quieres salir?';
-                };
-            </script>
-            """,
-            height=0,
-        )
-    else:
-        components.html("<script>window.onbeforeunload = null;</script>", height=0)
+    """Controla la alerta nativa solo para cierres reales de pestaña.
+
+    En Streamlit, `onbeforeunload` se dispara también al hacer clic en botones
+    (porque la app se recarga), por eso se desactiva para evitar falsos positivos.
+    """
+    components.html("<script>window.onbeforeunload = null;</script>", height=0)
 
 
 def draw_dimension_labels(ax, x, y, width, height, depth, dx, dy):
@@ -497,17 +489,28 @@ elif st.session_state.project_mode == 'edit':
                 project['modules'] = []
             project['modules'].append({
                 'nombre': f'Módulo {len(project["modules"]) + 1}',
-                'alto_mm': 2000,
                 'ancho_mm': 1000,
+                'alto_mm': 2000,
                 'profundo_mm': 400,
+                'cantidad_modulos': 1,
                 'material': '',
                 'material_fondo': '',
+                'material_puerta': '',
                 'tiene_fondo': False,
                 'tiene_puertas': False,
                 'cantidad_puertas': 0,
                 'cantidad_estantes': 0,
-                'cantidad_divisiones': 0
+                'cantidad_divisiones': 0,
+                'herrajes': []
             })
+
+        try:
+            hardware_list = firebase.get_all_hardware()
+            hardware_options = [h['type'] for h in hardware_list]
+            hardware_dict = {h['type']: h for h in hardware_list}
+        except Exception:
+            hardware_options = []
+            hardware_dict = {}
         
         for idx, module in enumerate(project.get('modules', [])):
             with st.expander(f"Módulo {idx + 1}: {module.get('nombre', '')}"):
@@ -515,9 +518,17 @@ elif st.session_state.project_mode == 'edit':
 
                 with col1:
                     module['nombre'] = st.text_input("Nombre", module.get('nombre', ''), key=f"mod_name_{idx}")
-                    module['alto_mm'] = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
                     module['ancho_mm'] = st.number_input("Ancho (mm)", value=module.get('ancho_mm', 1000), key=f"mod_ancho_{idx}")
+                    module['alto_mm'] = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
                     module['profundo_mm'] = st.number_input("Profundidad (mm)", value=module.get('profundo_mm', 400), key=f"mod_prof_{idx}")
+                    module['cantidad_modulos'] = st.number_input(
+                        "Cantidad de módulos iguales",
+                        value=int(module.get('cantidad_modulos', 1)),
+                        min_value=1,
+                        step=1,
+                        key=f"mod_cantidad_{idx}",
+                        help="Multiplica piezas, superficies y herrajes de este módulo."
+                    )
 
                 with col2:
                     material_value = module.get('material', '')
@@ -555,27 +566,83 @@ elif st.session_state.project_mode == 'edit':
                             min_value=0,
                             key=f"mod_cant_puertas_{idx}"
                         )
+                        material_puerta = module.get('material_puerta', module.get('material', ''))
+                        if material_options:
+                            door_default_index = material_options.index(material_puerta) if material_puerta in material_options else 0
+                            module['material_puerta'] = st.selectbox(
+                                "Material puerta",
+                                material_options,
+                                index=door_default_index,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_door_mat_{idx}"
+                            )
                     else:
                         module['cantidad_puertas'] = 0
+                        module['material_puerta'] = ''
 
                     module['cantidad_estantes'] = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
                     module['cantidad_divisiones'] = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
 
+                st.markdown("**Herrajes del módulo**")
+                if 'herrajes' not in module:
+                    module['herrajes'] = []
+
+                if st.button("➕ Agregar herraje al módulo", key=f"mod_add_hw_{idx}"):
+                    module['herrajes'].append({'type': 'Personalizado', 'quantity': 1, 'price_unit': 0.0})
+
+                for hw_idx, mod_hw in enumerate(module.get('herrajes', [])):
+                    hw_cols = st.columns([2, 1, 1, 1])
+                    with hw_cols[0]:
+                        selected_hw = st.selectbox(
+                            "Herraje",
+                            ["Personalizado"] + hardware_options,
+                            index=(["Personalizado"] + hardware_options).index(mod_hw.get('type', 'Personalizado')) if mod_hw.get('type', 'Personalizado') in (["Personalizado"] + hardware_options) else 0,
+                            key=f"mod_hw_type_{idx}_{hw_idx}"
+                        )
+                        if selected_hw == "Personalizado":
+                            mod_hw['type'] = st.text_input("Nombre", value=mod_hw.get('type', ''), key=f"mod_hw_custom_{idx}_{hw_idx}") or "Personalizado"
+                        else:
+                            mod_hw['type'] = selected_hw
+                            mod_hw['price_unit'] = hardware_dict.get(selected_hw, {}).get('price_unit', 0.0)
+                    with hw_cols[1]:
+                        mod_hw['quantity'] = st.number_input("Cant.", value=int(mod_hw.get('quantity', 1)), min_value=1, key=f"mod_hw_qty_{idx}_{hw_idx}")
+                    with hw_cols[2]:
+                        mod_hw['price_unit'] = st.number_input(
+                            "P. unitario (€)",
+                            value=float(mod_hw.get('price_unit', 0.0)),
+                            min_value=0.0,
+                            disabled=selected_hw != "Personalizado",
+                            key=f"mod_hw_price_{idx}_{hw_idx}"
+                        )
+                    with hw_cols[3]:
+                        if st.button("🗑️", key=f"mod_hw_del_{idx}_{hw_idx}"):
+                            module['herrajes'].pop(hw_idx)
+                            st.rerun()
+
+                actions_col1, actions_col2 = st.columns(2)
+                with actions_col1:
+                    if st.button(f"📄 Copiar módulo {idx + 1}", key=f"copy_mod_{idx}", use_container_width=True):
+                        cloned_module = copy.deepcopy(module)
+                        cloned_module['nombre'] = f"{module.get('nombre', f'Módulo {idx + 1}')} (copia)"
+                        project['modules'].insert(idx + 1, cloned_module)
+                        st.rerun()
+
                 delete_key = f"confirm_del_mod_{idx}"
-                if st.button(f"🗑️ Eliminar módulo {idx + 1}", key=f"del_mod_{idx}"):
-                    st.session_state[delete_key] = True
-                if st.session_state.get(delete_key):
-                    st.warning("¿Eliminar este módulo?")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("Confirmar", key=f"ok_del_mod_{idx}"):
-                            project['modules'].pop(idx)
-                            st.session_state[delete_key] = False
-                            st.rerun()
-                    with c2:
-                        if st.button("Cancelar", key=f"cancel_del_mod_{idx}"):
-                            st.session_state[delete_key] = False
-                            st.rerun()
+                with actions_col2:
+                    if st.button(f"🗑️ Eliminar módulo {idx + 1}", key=f"del_mod_{idx}", use_container_width=True):
+                        st.session_state[delete_key] = True
+                    if st.session_state.get(delete_key):
+                        st.warning("¿Eliminar este módulo?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Confirmar", key=f"ok_del_mod_{idx}"):
+                                project['modules'].pop(idx)
+                                st.session_state[delete_key] = False
+                                st.rerun()
+                        with c2:
+                            if st.button("Cancelar", key=f"cancel_del_mod_{idx}"):
+                                st.session_state[delete_key] = False
+                                st.rerun()
 
         if st.button("💾 Guardar cambios de módulos", key="save_modules", type="primary", use_container_width=True):
             try:
