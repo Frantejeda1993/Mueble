@@ -26,6 +26,7 @@ class CalculationService:
         cantidad_estantes = module.get('cantidad_estantes', 0)
         cantidad_divisiones = module.get('cantidad_divisiones', 0)
         material = module.get('material', '')
+        material_fondo = module.get('material_fondo', material)
         
         # 2 laterales: alto × profundo
         surfaces.append({
@@ -49,7 +50,7 @@ class CalculationService:
         if tiene_fondo:
             surfaces.append({
                 'descripcion': 'Fondo',
-                'material': material,
+                'material': material_fondo,
                 'm2_unitario': CalculationService.mm_to_m2(ancho, alto),
                 'm2_total': CalculationService.mm_to_m2(ancho, alto),
                 'cantidad': 1

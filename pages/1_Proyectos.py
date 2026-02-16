@@ -373,6 +373,7 @@ elif st.session_state.project_mode == 'edit':
                 'ancho_mm': 1000,
                 'profundo_mm': 400,
                 'material': '',
+                'material_fondo': '',
                 'tiene_fondo': False,
                 'tiene_puertas': False,
                 'cantidad_puertas': 0,
@@ -404,6 +405,18 @@ elif st.session_state.project_mode == 'edit':
                             )
 
                         tiene_fondo = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
+
+                        material_fondo = module.get('material_fondo', module.get('material', ''))
+                        if tiene_fondo and material_options:
+                            back_default_index = material_options.index(material_fondo) if material_fondo in material_options else 0
+                            material_fondo = st.selectbox(
+                                "Material fondo",
+                                material_options,
+                                index=back_default_index,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_back_mat_{idx}"
+                            )
+
                         tiene_puertas = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
 
                         cantidad_puertas = module.get('cantidad_puertas', 1)
@@ -420,6 +433,7 @@ elif st.session_state.project_mode == 'edit':
                         module['profundo_mm'] = profundo
                         module['material'] = material_value
                         module['tiene_fondo'] = tiene_fondo
+                        module['material_fondo'] = material_fondo if tiene_fondo else ''
                         module['tiene_puertas'] = tiene_puertas
                         module['cantidad_puertas'] = cantidad_puertas if tiene_puertas else 0
                         module['cantidad_estantes'] = cantidad_estantes
