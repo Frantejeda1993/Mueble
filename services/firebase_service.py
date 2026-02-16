@@ -86,9 +86,12 @@ class FirebaseService:
     def create_project(self, project_data: Dict) -> str:
         """Crea un nuevo proyecto"""
         try:
+            # Configurar timeout más largo
             doc_ref = self.db.collection('projects').document()
             project_data['date'] = datetime.now()
-            doc_ref.set(project_data)
+            
+            # Intentar crear con timeout
+            doc_ref.set(project_data, timeout=30.0)
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando proyecto: {str(e)}")
@@ -96,7 +99,7 @@ class FirebaseService:
     def get_project(self, project_id: str) -> Optional[Dict]:
         """Obtiene un proyecto por ID"""
         try:
-            doc = self.db.collection('projects').document(project_id).get()
+            doc = self.db.collection('projects').document(project_id).get(timeout=15.0)
             if doc.exists:
                 data = doc.to_dict()
                 data['id'] = doc.id
@@ -109,7 +112,7 @@ class FirebaseService:
         """Obtiene todos los proyectos"""
         try:
             projects = []
-            docs = self.db.collection('projects').stream()
+            docs = self.db.collection('projects').stream(timeout=20.0)
             for doc in docs:
                 data = doc.to_dict()
                 data['id'] = doc.id
@@ -121,14 +124,14 @@ class FirebaseService:
     def update_project(self, project_id: str, project_data: Dict):
         """Actualiza un proyecto existente"""
         try:
-            self.db.collection('projects').document(project_id).update(project_data)
+            self.db.collection('projects').document(project_id).update(project_data, timeout=30.0)
         except Exception as e:
             raise Exception(f"Error actualizando proyecto: {str(e)}")
     
     def delete_project(self, project_id: str):
         """Elimina un proyecto"""
         try:
-            self.db.collection('projects').document(project_id).delete()
+            self.db.collection('projects').document(project_id).delete(timeout=15.0)
         except Exception as e:
             raise Exception(f"Error eliminando proyecto: {str(e)}")
     
@@ -138,7 +141,7 @@ class FirebaseService:
         """Obtiene todos los materiales"""
         try:
             materials = []
-            docs = self.db.collection('materials').stream()
+            docs = self.db.collection('materials').stream(timeout=15.0)
             for doc in docs:
                 data = doc.to_dict()
                 data['id'] = doc.id
@@ -151,7 +154,7 @@ class FirebaseService:
         """Crea un nuevo material"""
         try:
             doc_ref = self.db.collection('materials').document()
-            doc_ref.set(material_data)
+            doc_ref.set(material_data, timeout=15.0)
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando material: {str(e)}")
@@ -159,14 +162,14 @@ class FirebaseService:
     def update_material(self, material_id: str, material_data: Dict):
         """Actualiza un material"""
         try:
-            self.db.collection('materials').document(material_id).update(material_data)
+            self.db.collection('materials').document(material_id).update(material_data, timeout=15.0)
         except Exception as e:
             raise Exception(f"Error actualizando material: {str(e)}")
     
     def delete_material(self, material_id: str):
         """Elimina un material"""
         try:
-            self.db.collection('materials').document(material_id).delete()
+            self.db.collection('materials').document(material_id).delete(timeout=10.0)
         except Exception as e:
             raise Exception(f"Error eliminando material: {str(e)}")
     
@@ -176,7 +179,7 @@ class FirebaseService:
         """Obtiene todos los herrajes"""
         try:
             hardware = []
-            docs = self.db.collection('hardware').stream()
+            docs = self.db.collection('hardware').stream(timeout=15.0)
             for doc in docs:
                 data = doc.to_dict()
                 data['id'] = doc.id
@@ -189,7 +192,7 @@ class FirebaseService:
         """Crea un nuevo herraje"""
         try:
             doc_ref = self.db.collection('hardware').document()
-            doc_ref.set(hardware_data)
+            doc_ref.set(hardware_data, timeout=15.0)
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando herraje: {str(e)}")
@@ -197,14 +200,14 @@ class FirebaseService:
     def update_hardware(self, hardware_id: str, hardware_data: Dict):
         """Actualiza un herraje"""
         try:
-            self.db.collection('hardware').document(hardware_id).update(hardware_data)
+            self.db.collection('hardware').document(hardware_id).update(hardware_data, timeout=15.0)
         except Exception as e:
             raise Exception(f"Error actualizando herraje: {str(e)}")
     
     def delete_hardware(self, hardware_id: str):
         """Elimina un herraje"""
         try:
-            self.db.collection('hardware').document(hardware_id).delete()
+            self.db.collection('hardware').document(hardware_id).delete(timeout=10.0)
         except Exception as e:
             raise Exception(f"Error eliminando herraje: {str(e)}")
     
@@ -213,7 +216,7 @@ class FirebaseService:
     def get_cutting_service(self) -> Optional[Dict]:
         """Obtiene la configuración del servicio de corte"""
         try:
-            doc = self.db.collection('cutting_service').document('config').get()
+            doc = self.db.collection('cutting_service').document('config').get(timeout=10.0)
             if doc.exists:
                 return doc.to_dict()
             # Valores por defecto
@@ -227,7 +230,7 @@ class FirebaseService:
     def update_cutting_service(self, cutting_data: Dict):
         """Actualiza la configuración del servicio de corte"""
         try:
-            self.db.collection('cutting_service').document('config').set(cutting_data)
+            self.db.collection('cutting_service').document('config').set(cutting_data, timeout=15.0)
         except Exception as e:
             raise Exception(f"Error actualizando servicio de corte: {str(e)}")
     
@@ -247,7 +250,7 @@ class FirebaseService:
                 'logo_base64': logo_base64,
                 'updated_at': datetime.now()
             }
-            self.db.collection('config').document('logo').set(logo_data)
+            self.db.collection('config').document('logo').set(logo_data, timeout=20.0)
             
             return 'logo_stored'
         except Exception as e:
@@ -256,7 +259,7 @@ class FirebaseService:
     def get_logo_base64(self) -> Optional[str]:
         """Obtiene el logo en formato base64 desde Firestore"""
         try:
-            doc = self.db.collection('config').document('logo').get()
+            doc = self.db.collection('config').document('logo').get(timeout=10.0)
             if doc.exists:
                 data = doc.to_dict()
                 return data.get('logo_base64')
