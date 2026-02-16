@@ -1,5 +1,7 @@
 import streamlit as st
 from google.cloud import firestore
+from google.api_core import exceptions as gcloud_exceptions
+from google.api_core.retry import Retry, if_exception_type
 import firebase_admin
 from firebase_admin import credentials
 import json
@@ -82,16 +84,34 @@ class FirebaseService:
                 raise
     
     # ========== PROYECTOS ==========
+
+    def _firestore_write_retry(self) -> Retry:
+        """Política de reintentos para escrituras con fallos transitorios de Firestore."""
+        return Retry(
+            predicate=if_exception_type(
+                gcloud_exceptions.DeadlineExceeded,
+                gcloud_exceptions.ServiceUnavailable,
+                gcloud_exceptions.InternalServerError,
+                gcloud_exceptions.Aborted,
+            ),
+            initial=1.0,
+            maximum=8.0,
+            multiplier=2.0,
+            timeout=25.0,
+        )
     
     def create_project(self, project_data: Dict) -> str:
         """Crea un nuevo proyecto"""
         try:
-            # Configurar timeout más largo
             doc_ref = self.db.collection('projects').document()
             project_data['date'] = datetime.now()
-            
-            # Intentar crear con timeout
-            doc_ref.set(project_data, timeout=30.0)
+
+            # Reintentos controlados para errores transitorios (gRPC/servicio)
+            doc_ref.set(
+                project_data,
+                timeout=20.0,
+                retry=self._firestore_write_retry(),
+            )
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando proyecto: {str(e)}")
