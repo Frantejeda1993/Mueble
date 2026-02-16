@@ -118,6 +118,8 @@ if st.session_state.project_mode == 'list':
         if st.button("➕ Nuevo Proyecto", use_container_width=True):
             st.session_state.project_mode = 'edit'
             st.session_state.current_project_id = None
+            st.session_state.edit_project = None
+            st.session_state.edit_project_cache_id = None
             st.rerun()
     
     # Obtener proyectos
@@ -165,6 +167,8 @@ if st.session_state.project_mode == 'list':
                         if st.button("Abrir", key=f"open_{project['id']}", use_container_width=True):
                             st.session_state.project_mode = 'edit'
                             st.session_state.current_project_id = project['id']
+                            st.session_state.edit_project = None
+                            st.session_state.edit_project_cache_id = None
                             st.rerun()
                     
                     st.divider()
@@ -179,34 +183,45 @@ elif st.session_state.project_mode == 'edit':
     if st.button("← Volver a lista"):
         st.session_state.project_mode = 'list'
         st.session_state.current_project_id = None
+        st.session_state.edit_project = None
+        st.session_state.edit_project_cache_id = None
         st.rerun()
     
     st.markdown("---")
     
-    # Cargar proyecto si existe
-    if st.session_state.current_project_id:
-        try:
-            project = firebase.get_project(st.session_state.current_project_id)
-            if not project:
-                st.error("Proyecto no encontrado")
+    # Cargar proyecto editable en session_state para no perder cambios en cada recarga
+    current_id = st.session_state.current_project_id
+    cache_id = current_id if current_id else '__new__'
+
+    if st.session_state.get('edit_project_cache_id') != cache_id or 'edit_project' not in st.session_state:
+        if current_id:
+            try:
+                loaded_project = firebase.get_project(current_id)
+                if not loaded_project:
+                    st.error("Proyecto no encontrado")
+                    st.stop()
+            except Exception as e:
+                st.error(f"Error cargando proyecto: {str(e)}")
                 st.stop()
-        except Exception as e:
-            st.error(f"Error cargando proyecto: {str(e)}")
-            st.stop()
-    else:
-        # Nuevo proyecto
-        project = {
-            'name': '',
-            'client': '',
-            'date': datetime.now(),
-            'status': 'Activo',
-            'modules': [],
-            'shelves': [],
-            'woods': [],
-            'hardwares': [],
-            'labor_cost_project': 0.0,
-            'extra_complexity': 0.0
-        }
+        else:
+            loaded_project = {
+                'name': '',
+                'client': '',
+                'date': datetime.now(),
+                'status': 'Activo',
+                'modules': [],
+                'shelves': [],
+                'woods': [],
+                'hardwares': [],
+                'labor_cost_project': 0.0,
+                'extra_complexity': 0.0,
+                'final_price': 0.0
+            }
+
+        st.session_state.edit_project = loaded_project
+        st.session_state.edit_project_cache_id = cache_id
+
+    project = st.session_state.edit_project
     
     # Información básica
     st.subheader("Información del Proyecto")
@@ -220,6 +235,12 @@ elif st.session_state.project_mode == 'edit':
         project_date = st.date_input("Fecha", project.get('date', datetime.now()))
         project_status = st.selectbox("Estado", ["Activo", "Cerrado"], 
                                      index=0 if project.get('status') == 'Activo' else 1)
+
+    # Mantener borrador sincronizado con datos básicos
+    project['name'] = project_name
+    project['client'] = project_client
+    project['date'] = datetime.combine(project_date, datetime.min.time())
+    project['status'] = project_status
     
     # Botón guardar
     col_save, col_delete = st.columns([3, 1])
@@ -236,6 +257,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
                 if "creado" in success_msg:
                     st.rerun()
@@ -250,6 +272,8 @@ elif st.session_state.project_mode == 'edit':
                     st.success("Proyecto eliminado")
                     st.session_state.project_mode = 'list'
                     st.session_state.current_project_id = None
+                    st.session_state.edit_project = None
+                    st.session_state.edit_project_cache_id = None
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error eliminando: {str(e)}")
@@ -344,6 +368,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de módulos: {str(e)}")
@@ -395,6 +420,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de estantes: {str(e)}")
@@ -446,6 +472,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de maderas: {str(e)}")
@@ -508,6 +535,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de herrajes: {str(e)}")
