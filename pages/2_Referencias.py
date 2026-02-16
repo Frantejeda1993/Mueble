@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from services.firebase_service import FirebaseService
 
 # Inicializar Firebase
@@ -18,6 +19,18 @@ firebase = get_firebase()
 st.session_state.active_nav_page = 'references'
 
 st.title("📚 Referencias y Configuración")
+
+components.html(
+    """
+    <script>
+        window.onbeforeunload = function () {
+            return 'Si tienes cambios sin guardar, se perderán. ¿Seguro que quieres salir?';
+        };
+    </script>
+    """,
+    height=0,
+)
+
 
 st.markdown("""
 En esta sección puedes configurar:
@@ -130,13 +143,25 @@ with tabs[0]:
                                 st.error(f"Error: {str(e)}")
                     
                     with col_delete:
+                        confirm_key = f"confirm_delete_mat_{material['id']}"
                         if st.button("🗑️", key=f"del_mat_{material['id']}", use_container_width=True):
-                            try:
-                                firebase.delete_material(material['id'])
-                                st.success("Material eliminado")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {str(e)}")
+                            st.session_state[confirm_key] = True
+                        if st.session_state.get(confirm_key):
+                            st.warning("¿Eliminar este material?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirmar", key=f"ok_del_mat_{material['id']}"):
+                                    try:
+                                        firebase.delete_material(material['id'])
+                                        st.session_state[confirm_key] = False
+                                        st.success("Material eliminado")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {str(e)}")
+                            with c2:
+                                if st.button("Cancelar", key=f"cancel_del_mat_{material['id']}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
     
     except Exception as e:
         st.error(f"Error cargando materiales: {str(e)}")
@@ -221,13 +246,25 @@ with tabs[1]:
                                 st.error(f"Error: {str(e)}")
                     
                     with col_delete:
+                        confirm_key = f"confirm_delete_hw_{hardware['id']}"
                         if st.button("🗑️", key=f"del_hw_{hardware['id']}", use_container_width=True):
-                            try:
-                                firebase.delete_hardware(hardware['id'])
-                                st.success("Herraje eliminado")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {str(e)}")
+                            st.session_state[confirm_key] = True
+                        if st.session_state.get(confirm_key):
+                            st.warning("¿Eliminar este herraje?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirmar", key=f"ok_del_hw_{hardware['id']}"):
+                                    try:
+                                        firebase.delete_hardware(hardware['id'])
+                                        st.session_state[confirm_key] = False
+                                        st.success("Herraje eliminado")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {str(e)}")
+                            with c2:
+                                if st.button("Cancelar", key=f"cancel_del_hw_{hardware['id']}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
     
     except Exception as e:
         st.error(f"Error cargando herrajes: {str(e)}")
