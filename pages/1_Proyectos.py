@@ -7,9 +7,17 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # Inicializar Firebase
-@st.cache_resource
 def get_firebase():
-    return FirebaseService()
+    """Obtiene la instancia de Firebase"""
+    if 'firebase' not in st.session_state:
+        try:
+            with st.spinner("Conectando con Firebase..."):
+                st.session_state.firebase = FirebaseService()
+        except Exception as e:
+            st.error("❌ Error conectando con Firebase")
+            st.error(str(e))
+            st.stop()
+    return st.session_state.firebase
 
 firebase = get_firebase()
 
@@ -563,15 +571,15 @@ elif st.session_state.project_mode == 'edit':
                     cutting_service
                 )
                 
-                # Obtener logo
-                logo_url = firebase.get_logo_url()
+                # Obtener logo (ahora en base64)
+                logo_base64 = firebase.get_logo_base64()
                 
                 # Generar PDF
                 pdf_buffer = PDFService.generate_pdf(
                     project,
                     calculations,
                     materials_dict_for_pdf,
-                    logo_url
+                    logo_base64
                 )
                 
                 # Descargar

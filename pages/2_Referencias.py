@@ -2,9 +2,17 @@ import streamlit as st
 from services.firebase_service import FirebaseService
 
 # Inicializar Firebase
-@st.cache_resource
 def get_firebase():
-    return FirebaseService()
+    """Obtiene la instancia de Firebase"""
+    if 'firebase' not in st.session_state:
+        try:
+            with st.spinner("Conectando con Firebase..."):
+                st.session_state.firebase = FirebaseService()
+        except Exception as e:
+            st.error("❌ Error conectando con Firebase")
+            st.error(str(e))
+            st.stop()
+    return st.session_state.firebase
 
 firebase = get_firebase()
 

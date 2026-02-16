@@ -13,23 +13,58 @@ class FirebaseService:
     def __init__(self):
         """Inicializa la conexión con Firebase"""
         self._init_firebase()
-        self.db = firestore.Client()
+        try:
+            self.db = firestore.Client()
+        except Exception as e:
+            st.error(f"Error conectando con Firestore: {str(e)}")
+            st.info("Verifica que Firestore esté activado en tu proyecto de Firebase")
+            raise
     
     def _init_firebase(self):
         """Inicializa Firebase Admin SDK"""
+        # Si ya está inicializado, no hacer nada
+        if firebase_admin._apps:
+            return
+        
         try:
             # Intentar obtener credenciales de Streamlit secrets
             if 'firebase' in st.secrets:
                 cred_dict = dict(st.secrets['firebase'])
+                
+                # Validar campos requeridos
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                missing_fields = [field for field in required_fields if field not in cred_dict]
+                
+                if missing_fields:
+                    st.error(f"❌ Faltan campos en secrets: {', '.join(missing_fields)}")
+                    st.info("Ve a Settings > Secrets en Streamlit Cloud y verifica la configuración")
+                    raise ValueError(f"Missing required fields: {missing_fields}")
+                
                 cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                
             else:
                 # Para desarrollo local, intentar cargar desde archivo
-                cred = credentials.Certificate('firebase-credentials.json')
-            
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app(cred)
+                try:
+                    cred = credentials.Certificate('firebase-credentials.json')
+                    firebase_admin.initialize_app(cred)
+                except FileNotFoundError:
+                    st.error("❌ No se encontró configuración de Firebase")
+                    st.info("""
+                    **Para desarrollo local:**
+                    - Descarga firebase-credentials.json de Firebase Console
+                    - Guárdalo en la raíz del proyecto
+                    
+                    **Para Streamlit Cloud:**
+                    - Ve a Settings > Secrets
+                    - Configura las credenciales según secrets.example.toml
+                    """)
+                    raise
+                    
         except Exception as e:
-            raise Exception(f"Error inicializando Firebase: {str(e)}")
+            if "already exists" not in str(e).lower():
+                st.error(f"❌ Error inicializando Firebase: {str(e)}")
+                raise
     
     # ========== PROYECTOS ==========
     

@@ -10,16 +10,38 @@ st.set_page_config(
 )
 
 # Inicializar Firebase
-@st.cache_resource
 def init_firebase():
     """Inicializa la conexión con Firebase"""
     try:
-        return FirebaseService()
+        with st.spinner("Conectando con Firebase..."):
+            return FirebaseService()
     except Exception as e:
-        st.error(f"Error al conectar con Firebase: {str(e)}")
+        st.error("❌ No se pudo conectar con Firebase")
+        st.error(f"Error: {str(e)}")
+        st.info("""
+        **Pasos para solucionar:**
+        
+        1. **Verifica que Firestore esté activado:**
+           - Ve a Firebase Console
+           - Selecciona tu proyecto
+           - Ve a "Firestore Database"
+           - Si no está activado, haz clic en "Crear base de datos"
+        
+        2. **Verifica las credenciales (Streamlit Cloud):**
+           - Ve a tu app en Streamlit Cloud
+           - Settings > Secrets
+           - Verifica que tengas todos los campos del archivo secrets.example.toml
+        
+        3. **Verifica las credenciales (Local):**
+           - Asegúrate de tener firebase-credentials.json en la raíz
+        """)
         st.stop()
 
-firebase = init_firebase()
+# Inicializar solo una vez
+if 'firebase' not in st.session_state:
+    st.session_state.firebase = init_firebase()
+
+firebase = st.session_state.firebase
 
 # Página principal
 st.title("🪵 Sistema de Presupuestos de Carpintería")
