@@ -25,16 +25,18 @@ class CalculationService:
         cantidad_puertas = module.get('cantidad_puertas', 0)
         cantidad_estantes = module.get('cantidad_estantes', 0)
         cantidad_divisiones = module.get('cantidad_divisiones', 0)
+        cantidad_modulos = max(1, int(module.get('cantidad_modulos', 1)))
         material = module.get('material', '')
         material_fondo = module.get('material_fondo', material)
+        material_puerta = module.get('material_puerta', material)
         
         # 2 laterales: alto × profundo
         surfaces.append({
             'descripcion': f'Lateral (x2)',
             'material': material,
             'm2_unitario': CalculationService.mm_to_m2(alto, profundo),
-            'm2_total': CalculationService.mm_to_m2(alto, profundo) * 2,
-            'cantidad': 2
+            'm2_total': CalculationService.mm_to_m2(alto, profundo) * 2 * cantidad_modulos,
+            'cantidad': 2 * cantidad_modulos
         })
         
         # 2 horizontales: ancho × profundo
@@ -42,8 +44,8 @@ class CalculationService:
             'descripcion': f'Horizontal (x2)',
             'material': material,
             'm2_unitario': CalculationService.mm_to_m2(ancho, profundo),
-            'm2_total': CalculationService.mm_to_m2(ancho, profundo) * 2,
-            'cantidad': 2
+            'm2_total': CalculationService.mm_to_m2(ancho, profundo) * 2 * cantidad_modulos,
+            'cantidad': 2 * cantidad_modulos
         })
         
         # Fondo: ancho × alto
@@ -52,18 +54,18 @@ class CalculationService:
                 'descripcion': 'Fondo',
                 'material': material_fondo,
                 'm2_unitario': CalculationService.mm_to_m2(ancho, alto),
-                'm2_total': CalculationService.mm_to_m2(ancho, alto),
-                'cantidad': 1
+                'm2_total': CalculationService.mm_to_m2(ancho, alto) * cantidad_modulos,
+                'cantidad': 1 * cantidad_modulos
             })
         
         # Puertas: ancho × alto × cantidad
         if tiene_puertas and cantidad_puertas > 0:
             surfaces.append({
                 'descripcion': f'Puerta (x{cantidad_puertas})',
-                'material': material,
+                'material': material_puerta,
                 'm2_unitario': CalculationService.mm_to_m2(ancho, alto),
-                'm2_total': CalculationService.mm_to_m2(ancho, alto) * cantidad_puertas,
-                'cantidad': cantidad_puertas
+                'm2_total': CalculationService.mm_to_m2(ancho, alto) * cantidad_puertas * cantidad_modulos,
+                'cantidad': cantidad_puertas * cantidad_modulos
             })
         
         # Estantes: ancho × profundo × cantidad
@@ -72,8 +74,8 @@ class CalculationService:
                 'descripcion': f'Estante (x{cantidad_estantes})',
                 'material': material,
                 'm2_unitario': CalculationService.mm_to_m2(ancho, profundo),
-                'm2_total': CalculationService.mm_to_m2(ancho, profundo) * cantidad_estantes,
-                'cantidad': cantidad_estantes
+                'm2_total': CalculationService.mm_to_m2(ancho, profundo) * cantidad_estantes * cantidad_modulos,
+                'cantidad': cantidad_estantes * cantidad_modulos
             })
         
         # Divisiones: alto × profundo × cantidad
@@ -82,8 +84,8 @@ class CalculationService:
                 'descripcion': f'División (x{cantidad_divisiones})',
                 'material': material,
                 'm2_unitario': CalculationService.mm_to_m2(alto, profundo),
-                'm2_total': CalculationService.mm_to_m2(alto, profundo) * cantidad_divisiones,
-                'cantidad': cantidad_divisiones
+                'm2_total': CalculationService.mm_to_m2(alto, profundo) * cantidad_divisiones * cantidad_modulos,
+                'cantidad': cantidad_divisiones * cantidad_modulos
             })
         
         return surfaces
@@ -198,6 +200,18 @@ class CalculationService:
             quantity = hardware.get('quantity', 0)
             total += price * quantity
         return total
+
+    @staticmethod
+    def calculate_module_hardware_total(modules: List[Dict]) -> float:
+        """Calcula el total de herrajes definidos dentro de cada módulo."""
+        total = 0.0
+        for module in modules:
+            cantidad_modulos = max(1, int(module.get('cantidad_modulos', 1)))
+            for hardware in module.get('herrajes', []):
+                quantity = hardware.get('quantity', 0)
+                price = hardware.get('price_unit', 0.0)
+                total += price * quantity * cantidad_modulos
+        return total
     
     @staticmethod
     def calculate_project_total(material_costs: Dict[str, Dict],
@@ -291,8 +305,9 @@ class CalculationService:
         )
         
         # Calcular total de herrajes
-        hardware_total = CalculationService.calculate_hardware_total(
-            project_data.get('hardwares', [])
+        hardware_total = (
+            CalculationService.calculate_hardware_total(project_data.get('hardwares', []))
+            + CalculationService.calculate_module_hardware_total(project_data.get('modules', []))
         )
         
         # Calcular total del proyecto

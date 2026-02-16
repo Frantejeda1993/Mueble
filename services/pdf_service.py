@@ -199,6 +199,22 @@ class PDFService:
                     f"{price:.2f} €",
                     f"{total:.2f} €",
                 ])
+
+            for module in project_data.get('modules', []):
+                module_name = module.get('nombre', 'Módulo')
+                module_qty = max(1, int(module.get('cantidad_modulos', 1)))
+                for mod_hardware in module.get('herrajes', []):
+                    quantity = mod_hardware.get('quantity', 0) * module_qty
+                    price = mod_hardware.get('price_unit', 0.0)
+                    total = quantity * price
+                    if quantity <= 0:
+                        continue
+                    hardware_data.append([
+                        f"{mod_hardware.get('type', 'Herraje')} ({module_name})",
+                        str(quantity),
+                        f"{price:.2f} €",
+                        f"{total:.2f} €",
+                    ])
             if len(hardware_data) == 1:
                 hardware_data.append(['Sin herrajes', '-', '-', '0.00 €'])
             hardware_table = PDFService._create_table(hardware_data, [9.6 * cm, 2.0 * cm, 2.4 * cm, 2.6 * cm])
