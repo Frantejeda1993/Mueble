@@ -290,11 +290,16 @@ elif st.session_state.project_mode == 'edit':
         # Obtener materiales
         try:
             materials_list = firebase.get_all_materials()
-            material_options = [f"{m['type']} {m.get('color', '')} {m.get('thickness_mm', '')}mm" for m in materials_list]
             materials_dict = {f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m for m in materials_list}
+            material_options = list(materials_dict.keys())
+            material_labels = {
+                key: f"{m['type']} {m.get('color', '')} {m.get('thickness_mm', '')}mm".strip()
+                for key, m in materials_dict.items()
+            }
         except:
             material_options = []
             materials_dict = {}
+            material_labels = {}
         
         if st.button("➕ Agregar Módulo"):
             if 'modules' not in project:
@@ -326,8 +331,14 @@ elif st.session_state.project_mode == 'edit':
                     with col2:
                         material_value = module.get('material', '')
                         if material_options:
-                            selected_mat = st.selectbox("Material", material_options, key=f"mod_mat_{idx}")
-                            material_value = selected_mat.replace(' ', '_').replace('mm', '')
+                            default_index = material_options.index(material_value) if material_value in material_options else 0
+                            material_value = st.selectbox(
+                                "Material",
+                                material_options,
+                                index=default_index,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_mat_{idx}"
+                            )
 
                         tiene_fondo = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
                         tiene_puertas = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
@@ -401,8 +412,15 @@ elif st.session_state.project_mode == 'edit':
                     shelf['cantidad'] = st.number_input("Cantidad", value=shelf.get('cantidad', 1), min_value=1, key=f"shelf_cant_{idx}")
                 
                 if material_options:
-                    selected_mat = st.selectbox("Material", material_options, key=f"shelf_mat_{idx}")
-                    shelf['material'] = selected_mat.replace(' ', '_').replace('mm', '')
+                    material_value = shelf.get('material', '')
+                    default_index = material_options.index(material_value) if material_value in material_options else 0
+                    shelf['material'] = st.selectbox(
+                        "Material",
+                        material_options,
+                        index=default_index,
+                        format_func=lambda x: material_labels.get(x, x),
+                        key=f"shelf_mat_{idx}"
+                    )
                 
                 if st.button(f"🗑️ Eliminar estante {idx + 1}", key=f"del_shelf_{idx}"):
                     project['shelves'].pop(idx)
@@ -453,8 +471,15 @@ elif st.session_state.project_mode == 'edit':
                     wood['cantidad'] = st.number_input("Cantidad", value=wood.get('cantidad', 1), min_value=1, key=f"wood_cant_{idx}")
                 
                 if material_options:
-                    selected_mat = st.selectbox("Material", material_options, key=f"wood_mat_{idx}")
-                    wood['material'] = selected_mat.replace(' ', '_').replace('mm', '')
+                    material_value = wood.get('material', '')
+                    default_index = material_options.index(material_value) if material_value in material_options else 0
+                    wood['material'] = st.selectbox(
+                        "Material",
+                        material_options,
+                        index=default_index,
+                        format_func=lambda x: material_labels.get(x, x),
+                        key=f"wood_mat_{idx}"
+                    )
                 
                 if st.button(f"🗑️ Eliminar madera {idx + 1}", key=f"del_wood_{idx}"):
                     project['woods'].pop(idx)
