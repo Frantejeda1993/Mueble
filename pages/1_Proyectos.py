@@ -1,4 +1,3 @@
-import base64
 import copy
 import json
 
@@ -52,9 +51,21 @@ def save_project_data(firebase_service, project_id, project_name, project_client
     return new_id, "✅ Proyecto creado correctamente"
 
 
+def _normalize_project_for_compare(project_data):
+    """Normaliza datos para comparar cambios sin falsos positivos."""
+    normalized = copy.deepcopy(project_data)
+    date_value = normalized.get('date')
+    if hasattr(date_value, 'date'):
+        normalized['date'] = date_value.date().isoformat()
+    elif date_value is not None:
+        normalized['date'] = str(date_value)
+    return normalized
+
+
 def serialize_project_state(project_data):
     """Serializa el proyecto para comparar cambios pendientes de guardado."""
-    return json.dumps(project_data, sort_keys=True, default=str)
+    normalized = _normalize_project_for_compare(project_data)
+    return json.dumps(normalized, sort_keys=True, default=str)
 
 
 def enable_unsaved_changes_guard(enabled):
@@ -78,37 +89,34 @@ def draw_dimension_labels(ax, x, y, width, height, depth, dx, dy):
     """Imprime medidas sobre el lado correspondiente del módulo."""
     dim_style = dict(fontsize=8, color='#1B263B', fontweight='bold')
 
-    # Ancho en el frente inferior
-    ax.annotate('', xy=(x, y - 38), xytext=(x + width, y - 38),
+    # Ancho en el frente inferior (más separado del dibujo)
+    ax.annotate('', xy=(x, y - 68), xytext=(x + width, y - 68),
                 arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
-    ax.text(x + width / 2, y - 48, f"A {int(width)} mm", ha='center', va='top', **dim_style)
+    ax.text(x + width / 2, y - 82, f"A {int(width)} mm", ha='center', va='top', **dim_style)
 
-    # Alto en lateral izquierdo
-    ax.annotate('', xy=(x - 38, y), xytext=(x - 38, y + height),
+    # Alto en lateral izquierdo (más separado)
+    ax.annotate('', xy=(x - 68, y), xytext=(x - 68, y + height),
                 arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
-    ax.text(x - 48, y + height / 2, f"H {int(height)} mm", ha='right', va='center', rotation=90, **dim_style)
+    ax.text(x - 84, y + height / 2, f"H {int(height)} mm", ha='right', va='center', rotation=90, **dim_style)
 
-    # Profundidad sobre la arista superior
-    ax.annotate('', xy=(x + width, y + height), xytext=(x + width + dx, y + height + dy),
+    # Profundidad desplazada fuera de la arista para no ensuciar
+    ax.annotate('', xy=(x + width + 14, y + height + 14), xytext=(x + width + dx + 22, y + height + dy + 22),
                 arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
-    ax.text(x + width + (dx / 2) + 8, y + height + (dy / 2) + 8, f"P {int(depth)} mm",
+    ax.text(x + width + (dx / 2) + 30, y + height + (dy / 2) + 28, f"P {int(depth)} mm",
             ha='left', va='bottom', rotation=25, **dim_style)
 
 
-def expand_items_by_quantity(items, default_name):
-    """Desdobla cada item por cantidad para mostrar cada pieza por separado."""
-    expanded = []
+def prepare_grouped_items(items, default_name):
+    """Prepara piezas agrupadas por item: cantidad apilada, items distintos en columnas."""
+    grouped = []
     for idx, item in enumerate(items):
-        qty = max(1, int(item.get('cantidad', 1)))
-        base_name = item.get('nombre') or f"{default_name} {idx + 1}"
-        for unit in range(qty):
-            unit_name = f"{base_name} #{unit + 1}" if qty > 1 else base_name
-            expanded.append({
-                'nombre': unit_name,
-                'ancho_mm': item.get('ancho_mm', 0),
-                'profundo_mm': item.get('profundo_mm', 0),
-            })
-    return expanded
+        grouped.append({
+            'nombre': item.get('nombre') or f"{default_name} {idx + 1}",
+            'ancho_mm': item.get('ancho_mm', 0),
+            'profundo_mm': item.get('profundo_mm', 0),
+            'cantidad': max(1, int(item.get('cantidad', 1)))
+        })
+    return grouped
 
 
 def draw_isometric_box(ax, x, y, width, height, depth, face_color='#ADD8E6', side_color='#8FB8D8', top_color='#C6E2F5'):
@@ -892,8 +900,13 @@ elif st.session_state.project_mode == 'edit':
                     value=project.get('final_price', calculations['total_calculated']),
                     help="Precio editable que se mostrará al cliente"
                 )
-            
-            st.info(f"💼 Mano de obra en PDF: {calculations['labor_for_invoice']:.2f} € | 🏷️ Descuento: {calculations.get('discount_for_invoice', 0.0):.2f} €")
+
+            calculations_live = CalculationService.calculate_all_project_costs(
+                project,
+                materials_db_list,
+                cutting_service
+            )
+            st.info(f"💼 Mano de obra en PDF: {calculations_live['labor_for_invoice']:.2f} € | 🏷️ Descuento: {calculations_live.get('discount_for_invoice', 0.0):.2f} €")
             
         except Exception as e:
             st.error(f"Error calculando costos: {str(e)}")
@@ -950,76 +963,93 @@ elif st.session_state.project_mode == 'edit':
                 st.pyplot(fig)
                 plt.close()
 
-        # Dibujar estantes sin agrupar para mostrar cada pieza y nombre
+        # Dibujar estantes: cantidades del mismo item apiladas, items distintos en columnas
         if project.get('shelves'):
             st.markdown("### Estantes Independientes")
 
-            shelf_pieces = expand_items_by_quantity(project['shelves'], 'Estante')
-            max_prof = max([piece['profundo_mm'] for piece in shelf_pieces]) if shelf_pieces else 300
-            fig, ax = plt.subplots(figsize=(max(8, min(16, len(shelf_pieces) * 2.2)), 4.5))
+            shelves_grouped = prepare_grouped_items(project['shelves'], 'Estante')
+            max_prof = max([piece['profundo_mm'] for piece in shelves_grouped]) if shelves_grouped else 300
+            max_qty = max([piece['cantidad'] for piece in shelves_grouped]) if shelves_grouped else 1
+            fig, ax = plt.subplots(figsize=(max(8, min(16, len(shelves_grouped) * 2.4)), max(4.8, 3.8 + max_qty * 0.5)))
 
             x_cursor = 0
             shelf_height = 45
+            stack_gap = 68
 
-            for piece in shelf_pieces:
+            for piece in shelves_grouped:
                 ancho = piece.get('ancho_mm', 800)
                 profundo = piece.get('profundo_mm', 300)
                 nombre = piece.get('nombre', 'Estante')
-                dx, _ = draw_isometric_box(
-                    ax,
-                    x_cursor,
-                    0,
-                    ancho,
-                    shelf_height,
-                    profundo,
-                    face_color='wheat',
-                    side_color='#D2B48C',
-                    top_color='#F5DEB3'
-                )
+                qty = piece.get('cantidad', 1)
+                dx = profundo * 0.45
 
-                ax.text(x_cursor + ancho / 2, shelf_height + 26, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
-                ax.text(x_cursor + ancho / 2, -32, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7.5)
-                x_cursor += ancho + dx + max(110, ancho * 0.12)
+                for level in range(qty):
+                    y_pos = level * stack_gap
+                    draw_isometric_box(
+                        ax,
+                        x_cursor,
+                        y_pos,
+                        ancho,
+                        shelf_height,
+                        profundo,
+                        face_color='wheat',
+                        side_color='#D2B48C',
+                        top_color='#F5DEB3'
+                    )
+
+                top_y = (qty - 1) * stack_gap + shelf_height + (profundo * 0.30)
+                ax.text(x_cursor + ancho / 2, top_y + 30, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
+                suffix = f" (x{qty})" if qty > 1 else ''
+                ax.text(x_cursor + ancho / 2, -34, f"{format_dimensions(ancho, profundo_mm=profundo)}{suffix}", ha='center', va='top', fontsize=7.5)
+                x_cursor += ancho + dx + max(120, ancho * 0.14)
 
             ax.set_xlim(-40, x_cursor)
-            ax.set_ylim(-70, shelf_height + (max_prof * 0.35) + 65)
+            ax.set_ylim(-72, (max_qty - 1) * stack_gap + shelf_height + (max_prof * 0.42) + 95)
             ax.set_aspect('equal')
             ax.axis('off')
 
             st.pyplot(fig)
             plt.close()
 
-        # Dibujar maderas sin agrupar para mostrar cada pieza y nombre
+        # Dibujar maderas: cantidades del mismo item apiladas, items distintos en columnas
         if project.get('woods'):
             st.markdown("### Maderas Independientes")
 
-            wood_pieces = expand_items_by_quantity(project['woods'], 'Madera')
-            fig, ax = plt.subplots(figsize=(max(8, min(16, len(wood_pieces) * 2.0)), 3.8))
+            woods_grouped = prepare_grouped_items(project['woods'], 'Madera')
+            max_qty = max([piece['cantidad'] for piece in woods_grouped]) if woods_grouped else 1
+            fig, ax = plt.subplots(figsize=(max(8, min(16, len(woods_grouped) * 2.2)), max(4.0, 3.0 + max_qty * 0.45)))
 
             x_cursor = 0
             wood_height = 40
+            stack_gap = 58
 
-            for piece in wood_pieces:
+            for piece in woods_grouped:
                 ancho = piece.get('ancho_mm', 500)
                 profundo = piece.get('profundo_mm', 200)
                 nombre = piece.get('nombre', 'Madera')
-                rect = patches.Rectangle(
-                    (x_cursor, 0),
-                    ancho,
-                    wood_height,
-                    linewidth=1.2,
-                    edgecolor='saddlebrown',
-                    facecolor='burlywood',
-                    alpha=0.75
-                )
-                ax.add_patch(rect)
+                qty = piece.get('cantidad', 1)
 
-                ax.text(x_cursor + ancho / 2, wood_height + 20, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
-                ax.text(x_cursor + ancho / 2, -24, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7.5)
-                x_cursor += ancho + max(110, ancho * 0.14)
+                for level in range(qty):
+                    y_pos = level * stack_gap
+                    rect = patches.Rectangle(
+                        (x_cursor, y_pos),
+                        ancho,
+                        wood_height,
+                        linewidth=1.2,
+                        edgecolor='saddlebrown',
+                        facecolor='burlywood',
+                        alpha=0.75
+                    )
+                    ax.add_patch(rect)
+
+                top_y = (qty - 1) * stack_gap + wood_height
+                ax.text(x_cursor + ancho / 2, top_y + 22, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
+                suffix = f" (x{qty})" if qty > 1 else ''
+                ax.text(x_cursor + ancho / 2, -24, f"{format_dimensions(ancho, profundo_mm=profundo)}{suffix}", ha='center', va='top', fontsize=7.5)
+                x_cursor += ancho + max(120, ancho * 0.16)
 
             ax.set_xlim(-40, x_cursor)
-            ax.set_ylim(-55, wood_height + 60)
+            ax.set_ylim(-55, (max_qty - 1) * stack_gap + wood_height + 70)
             ax.set_aspect('equal')
             ax.axis('off')
 
@@ -1030,51 +1060,38 @@ elif st.session_state.project_mode == 'edit':
     with tabs[6]:
         st.subheader("📄 Generar PDF")
         
-        if st.button("📥 Descargar PDF", type="primary"):
-            try:
-                # Calcular costos
-                materials_db_list = firebase.get_all_materials()
-                cutting_service = firebase.get_cutting_service()
-                
-                materials_dict_for_pdf = {
-                    f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m 
-                    for m in materials_db_list
-                }
-                
-                calculations = CalculationService.calculate_all_project_costs(
-                    project,
-                    materials_db_list,
-                    cutting_service
-                )
-                
-                # Obtener logo (ahora en base64)
-                logo_base64 = firebase.get_logo_base64()
-                
-                # Generar PDF
-                pdf_buffer = PDFService.generate_pdf(
-                    project,
-                    calculations,
-                    materials_dict_for_pdf,
-                    logo_base64
-                )
-                
-                file_name = f"Presupuesto_{project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
-                pdf_base64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
-                components.html(
-                    f"""
-                    <script>
-                        const link = document.createElement('a');
-                        link.href = 'data:application/pdf;base64,{pdf_base64}';
-                        link.download = '{file_name}';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                    </script>
-                    """,
-                    height=0,
-                )
+        try:
+            materials_db_list = firebase.get_all_materials()
+            cutting_service = firebase.get_cutting_service()
 
-                st.success("✅ PDF generado y descargado automáticamente")
-                
-            except Exception as e:
-                st.error(f"Error generando PDF: {str(e)}")
+            materials_dict_for_pdf = {
+                f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m
+                for m in materials_db_list
+            }
+
+            calculations = CalculationService.calculate_all_project_costs(
+                project,
+                materials_db_list,
+                cutting_service
+            )
+
+            logo_base64 = firebase.get_logo_base64()
+
+            pdf_buffer = PDFService.generate_pdf(
+                project,
+                calculations,
+                materials_dict_for_pdf,
+                logo_base64
+            )
+
+            file_name = f"Presupuesto_{project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            st.download_button(
+                label="📥 Descargar PDF",
+                data=pdf_buffer.getvalue(),
+                file_name=file_name,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"Error generando PDF: {str(e)}")
