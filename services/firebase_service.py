@@ -17,8 +17,10 @@ class FirebaseService:
         """Inicializa la conexión con Firebase"""
         self.project_id = self._init_firebase()
         try:
-            # Crear cliente de Firestore con project_id explícito
-            self.db = firestore.Client(project=self.project_id)
+            # Reutilizar credenciales del Admin SDK para evitar dependencia de ADC/metadata server
+            app = firebase_admin.get_app()
+            google_creds = app.credential.get_credential()
+            self.db = firestore.Client(project=self.project_id, credentials=google_creds)
         except Exception as e:
             st.error(f"Error conectando con Firestore: {str(e)}")
             st.info("Verifica que Firestore esté activado en tu proyecto de Firebase")
@@ -86,7 +88,7 @@ class FirebaseService:
     
     # ========== PROYECTOS ==========
 
-    def _firestore_write_retry(self) -> Retry:
+    def _firestore_write_retry(self, total_timeout: float = 90.0) -> Retry:
         """Política de reintentos para escrituras con fallos transitorios de Firestore."""
         return Retry(
             predicate=if_exception_type(
@@ -98,7 +100,7 @@ class FirebaseService:
             initial=1.0,
             maximum=8.0,
             multiplier=2.0,
-            timeout=25.0,
+            timeout=total_timeout,
         )
     
     def create_project(self, project_data: Dict) -> str:
@@ -108,11 +110,14 @@ class FirebaseService:
             project_data['date'] = datetime.now()
 
             # Reintentos controlados para errores transitorios (gRPC/servicio)
-            doc_ref.set(
-                project_data,
-                timeout=20.0,
-                retry=self._firestore_write_retry(),
-            )
+            doc_ref.set(project_data, timeout=45.0, retry=self._firestore_write_retry())
+            return doc_ref.id
+        except gcloud_exceptions.DeadlineExceeded:
+            # Fallback de último intento sin retry interno y mayor timeout.
+            # Ayuda cuando la red está lenta pero la operación puede completar en un segundo intento.
+            doc_ref = self.db.collection('projects').document()
+            project_data['date'] = datetime.now()
+            doc_ref.set(project_data, timeout=60.0)
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando proyecto: {str(e)}")
@@ -145,7 +150,11 @@ class FirebaseService:
     def update_project(self, project_id: str, project_data: Dict):
         """Actualiza un proyecto existente"""
         try:
-            self.db.collection('projects').document(project_id).update(project_data, timeout=30.0)
+            self.db.collection('projects').document(project_id).update(
+                project_data,
+                timeout=45.0,
+                retry=self._firestore_write_retry(),
+            )
         except Exception as e:
             raise Exception(f"Error actualizando proyecto: {str(e)}")
     
