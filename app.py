@@ -42,6 +42,7 @@ if 'firebase' not in st.session_state:
     st.session_state.firebase = init_firebase()
 
 firebase = st.session_state.firebase
+st.session_state.active_nav_page = 'home'
 
 # Página principal
 st.title("🪵 Sistema de Presupuestos de Carpintería")

@@ -165,6 +165,11 @@ if 'project_mode' not in st.session_state:
 if 'current_project_id' not in st.session_state:
     st.session_state.current_project_id = None
 
+if st.session_state.get('active_nav_page') != 'projects':
+    st.session_state.project_mode = 'list'
+
+st.session_state.active_nav_page = 'projects'
+
 # ========== VISTA LISTA ==========
 if st.session_state.project_mode == 'list':
     
@@ -181,6 +186,15 @@ if st.session_state.project_mode == 'list':
         if st.button("➕ Nuevo Proyecto", use_container_width=True):
             st.session_state.project_mode = 'edit'
             st.session_state.current_project_id = None
+            st.session_state.edit_project = None
+            st.session_state.edit_project_cache_id = None
+            st.rerun()
+
+    last_project_id = st.session_state.get('last_opened_project_id') or st.session_state.get('current_project_id')
+    if last_project_id:
+        if st.button("↩️ Volver al proyecto abierto", use_container_width=True):
+            st.session_state.project_mode = 'edit'
+            st.session_state.current_project_id = last_project_id
             st.session_state.edit_project = None
             st.session_state.edit_project_cache_id = None
             st.rerun()
@@ -230,6 +244,7 @@ if st.session_state.project_mode == 'list':
                         if st.button("Abrir", key=f"open_{project['id']}", use_container_width=True):
                             st.session_state.project_mode = 'edit'
                             st.session_state.current_project_id = project['id']
+                            st.session_state.last_opened_project_id = project['id']
                             st.session_state.edit_project = None
                             st.session_state.edit_project_cache_id = None
                             st.rerun()
@@ -245,7 +260,6 @@ elif st.session_state.project_mode == 'edit':
     # Botón volver
     if st.button("← Volver a lista"):
         st.session_state.project_mode = 'list'
-        st.session_state.current_project_id = None
         st.session_state.edit_project = None
         st.session_state.edit_project_cache_id = None
         st.rerun()
@@ -320,6 +334,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
                 if "creado" in success_msg:
@@ -383,63 +398,56 @@ elif st.session_state.project_mode == 'edit':
         
         for idx, module in enumerate(project.get('modules', [])):
             with st.expander(f"Módulo {idx + 1}: {module.get('nombre', '')}"):
-                with st.form(key=f"module_form_{idx}"):
-                    col1, col2 = st.columns(2)
+                col1, col2 = st.columns(2)
 
-                    with col1:
-                        nombre = st.text_input("Nombre", module.get('nombre', ''), key=f"mod_name_{idx}")
-                        alto = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
-                        ancho = st.number_input("Ancho (mm)", value=module.get('ancho_mm', 1000), key=f"mod_ancho_{idx}")
-                        profundo = st.number_input("Profundidad (mm)", value=module.get('profundo_mm', 400), key=f"mod_prof_{idx}")
+                with col1:
+                    module['nombre'] = st.text_input("Nombre", module.get('nombre', ''), key=f"mod_name_{idx}")
+                    module['alto_mm'] = st.number_input("Alto (mm)", value=module.get('alto_mm', 2000), key=f"mod_alto_{idx}")
+                    module['ancho_mm'] = st.number_input("Ancho (mm)", value=module.get('ancho_mm', 1000), key=f"mod_ancho_{idx}")
+                    module['profundo_mm'] = st.number_input("Profundidad (mm)", value=module.get('profundo_mm', 400), key=f"mod_prof_{idx}")
 
-                    with col2:
-                        material_value = module.get('material', '')
-                        if material_options:
-                            default_index = material_options.index(material_value) if material_value in material_options else 0
-                            material_value = st.selectbox(
-                                "Material",
-                                material_options,
-                                index=default_index,
-                                format_func=lambda x: material_labels.get(x, x),
-                                key=f"mod_mat_{idx}"
-                            )
+                with col2:
+                    material_value = module.get('material', '')
+                    if material_options:
+                        default_index = material_options.index(material_value) if material_value in material_options else 0
+                        module['material'] = st.selectbox(
+                            "Material",
+                            material_options,
+                            index=default_index,
+                            format_func=lambda x: material_labels.get(x, x),
+                            key=f"mod_mat_{idx}"
+                        )
 
-                        tiene_fondo = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
+                    module['tiene_fondo'] = st.checkbox("Tiene fondo", module.get('tiene_fondo', False), key=f"mod_fondo_{idx}")
 
-                        material_fondo = module.get('material_fondo', module.get('material', ''))
-                        if tiene_fondo and material_options:
-                            back_default_index = material_options.index(material_fondo) if material_fondo in material_options else 0
-                            material_fondo = st.selectbox(
-                                "Material fondo",
-                                material_options,
-                                index=back_default_index,
-                                format_func=lambda x: material_labels.get(x, x),
-                                key=f"mod_back_mat_{idx}"
-                            )
+                    material_fondo = module.get('material_fondo', module.get('material', ''))
+                    if module['tiene_fondo'] and material_options:
+                        back_default_index = material_options.index(material_fondo) if material_fondo in material_options else 0
+                        module['material_fondo'] = st.selectbox(
+                            "Material fondo",
+                            material_options,
+                            index=back_default_index,
+                            format_func=lambda x: material_labels.get(x, x),
+                            key=f"mod_back_mat_{idx}"
+                        )
+                    else:
+                        module['material_fondo'] = ''
 
-                        tiene_puertas = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
+                    module['tiene_puertas'] = st.checkbox("Tiene puertas", module.get('tiene_puertas', False), key=f"mod_puertas_{idx}")
 
-                        cantidad_puertas = module.get('cantidad_puertas', 1)
-                        if tiene_puertas:
-                            cantidad_puertas = st.number_input("Cantidad puertas", value=module.get('cantidad_puertas', 1), min_value=0, key=f"mod_cant_puertas_{idx}")
+                    if module['tiene_puertas']:
+                        module['cantidad_puertas'] = st.number_input(
+                            "Cantidad puertas",
+                            value=module.get('cantidad_puertas', 1),
+                            min_value=0,
+                            key=f"mod_cant_puertas_{idx}"
+                        )
+                    else:
+                        module['cantidad_puertas'] = 0
 
-                        cantidad_estantes = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
-                        cantidad_divisiones = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
+                    module['cantidad_estantes'] = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
+                    module['cantidad_divisiones'] = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
 
-                    if st.form_submit_button("Aplicar cambios", use_container_width=True):
-                        module['nombre'] = nombre
-                        module['alto_mm'] = alto
-                        module['ancho_mm'] = ancho
-                        module['profundo_mm'] = profundo
-                        module['material'] = material_value
-                        module['tiene_fondo'] = tiene_fondo
-                        module['material_fondo'] = material_fondo if tiene_fondo else ''
-                        module['tiene_puertas'] = tiene_puertas
-                        module['cantidad_puertas'] = cantidad_puertas if tiene_puertas else 0
-                        module['cantidad_estantes'] = cantidad_estantes
-                        module['cantidad_divisiones'] = cantidad_divisiones
-                        st.success("Cambios del módulo aplicados")
-                
                 if st.button(f"🗑️ Eliminar módulo {idx + 1}", key=f"del_mod_{idx}"):
                     project['modules'].pop(idx)
                     st.rerun()
@@ -456,6 +464,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
@@ -515,6 +524,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
@@ -574,6 +584,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
@@ -623,13 +634,23 @@ elif st.session_state.project_mode == 'edit':
                     hardware['quantity'] = st.number_input("Cantidad", value=hardware.get('quantity', 1), min_value=0, key=f"hw_qty_{idx}")
                 
                 with col3:
-                    hardware['price_unit'] = st.number_input(
-                        "Precio unitario (€)",
-                        value=hardware.get('price_unit', 0.0),
-                        key=f"hw_price_{idx}",
-                        disabled=not is_custom_hardware,
-                        help="Solo editable para herrajes personalizados"
-                    )
+                    if is_custom_hardware:
+                        hardware['price_unit'] = st.number_input(
+                            "Precio unitario (€)",
+                            value=hardware.get('price_unit', 0.0),
+                            key=f"hw_price_custom_{idx}",
+                            help="Solo editable para herrajes personalizados"
+                        )
+                    else:
+                        selected_price = hardware_dict.get(selected_hw, {}).get('price_unit', 0.0)
+                        hardware['price_unit'] = selected_price
+                        st.number_input(
+                            "Precio unitario (€)",
+                            value=float(selected_price),
+                            key=f"hw_price_ref_{idx}_{selected_hw}",
+                            disabled=True,
+                            help="Tomado automáticamente de Referencias > Herrajes"
+                        )
                 
                 if st.button(f"🗑️ Eliminar herraje {idx + 1}", key=f"del_hw_{idx}"):
                     project['hardwares'].pop(idx)
@@ -647,6 +668,7 @@ elif st.session_state.project_mode == 'edit':
                     project
                 )
                 st.session_state.current_project_id = current_id
+                st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
                 st.success(success_msg)
             except Exception as e:
@@ -723,25 +745,20 @@ elif st.session_state.project_mode == 'edit':
     with tabs[5]:
         st.subheader("📊 Vista Gráfica")
         
-        # Dibujar módulos juntos
+        # Dibujar cada módulo por separado
         if project.get('modules'):
             st.markdown("### Módulos")
 
-            modules = project['modules']
-            max_alto = max([m.get('alto_mm', 2000) for m in modules])
-            max_prof = max([m.get('profundo_mm', 400) for m in modules])
-            fig, ax = plt.subplots(figsize=(max(7, min(14, len(modules) * 2.4)), 3.8))
-
-            x_cursor = 0
-            for idx, module in enumerate(modules):
+            for idx, module in enumerate(project['modules']):
                 alto = module.get('alto_mm', 2000)
                 ancho = module.get('ancho_mm', 1000)
                 profundo = module.get('profundo_mm', 400)
+                fig, ax = plt.subplots(figsize=(7, 4))
 
                 puertas = module.get('cantidad_puertas', 0) if module.get('tiene_puertas') else 0
-                dx, dy = draw_module_structure(
+                draw_module_structure(
                     ax,
-                    x_cursor,
+                    0,
                     0,
                     ancho,
                     alto,
@@ -755,104 +772,120 @@ elif st.session_state.project_mode == 'edit':
                     spacing = alto / (estantes + 1)
                     for i in range(1, estantes + 1):
                         y_pos = i * spacing
-                        ax.plot([x_cursor + 25, x_cursor + ancho - 25], [y_pos, y_pos], linestyle='--', color='#C62828', linewidth=1)
+                        ax.plot([25, ancho - 25], [y_pos, y_pos], linestyle='--', color='#C62828', linewidth=1)
 
                 divisiones = module.get('cantidad_divisiones', 0)
                 if divisiones > 0:
                     spacing = ancho / (divisiones + 1)
                     for i in range(1, divisiones + 1):
-                        x_pos = x_cursor + i * spacing
+                        x_pos = i * spacing
                         ax.plot([x_pos, x_pos], [25, alto - 25], linestyle='--', color='#2E7D32', linewidth=1)
 
-                label = module.get('nombre', f'Módulo {idx+1}')
+                label = module.get('nombre', f'Módulo {idx + 1}')
                 dim_label = format_dimensions(ancho, alto, profundo)
                 if module.get('tiene_fondo'):
                     dim_label += " • Fondo"
                 if puertas > 0:
                     dim_label += f" • {puertas} puerta(s)"
 
-                ax.text(x_cursor + ancho / 2, -max_alto * 0.09, label, ha='center', va='top', fontsize=8, weight='bold')
-                ax.text(x_cursor + ancho / 2, -max_alto * 0.15, dim_label, ha='center', va='top', fontsize=7)
+                st.caption(f"{label} — {dim_label}")
 
-                x_cursor += ancho + dx + max(160, ancho * 0.2)
+                ax.set_xlim(-80, ancho + (profundo * 0.35) + 120)
+                ax.set_ylim(-alto * 0.18, alto + (profundo * 0.35) + 60)
+                ax.set_aspect('equal')
+                ax.axis('off')
 
-            ax.set_xlim(-80, x_cursor)
-            ax.set_ylim(-max_alto * 0.23, max_alto + (max_prof * 0.35) + 60)
-            ax.set_aspect('equal')
-            ax.axis('off')
+                st.pyplot(fig)
+                plt.close()
 
-            st.pyplot(fig)
-            plt.close()
-
-        # Dibujar estantes juntos
+        # Dibujar estantes agrupados por medida
         if project.get('shelves'):
             st.markdown("### Estantes Independientes")
 
-            shelves = []
+            grouped_shelves = {}
             for shelf in project['shelves']:
-                for _ in range(max(1, shelf.get('cantidad', 1))):
-                    shelves.append(shelf)
+                key = (shelf.get('ancho_mm', 800), shelf.get('profundo_mm', 300))
+                grouped_shelves[key] = grouped_shelves.get(key, 0) + max(1, int(shelf.get('cantidad', 1)))
 
-            max_ancho = max([s.get('ancho_mm', 800) for s in shelves])
-            max_prof = max([s.get('profundo_mm', 300) for s in shelves])
-            fig, ax = plt.subplots(figsize=(max(7, min(14, len(shelves) * 1.8)), 2.8))
+            groups = list(grouped_shelves.items())
+            max_prof = max([dims[1] for dims, _ in groups])
+            max_qty = max([qty for _, qty in groups])
+            fig, ax = plt.subplots(figsize=(max(7, min(14, len(groups) * 2.2)), max(3.2, 2.4 + (max_qty - 1) * 0.7)))
 
             x_cursor = 0
             shelf_height = 45
-            for idx, shelf in enumerate(shelves):
-                ancho = shelf.get('ancho_mm', 800)
-                profundo = shelf.get('profundo_mm', 300)
+            stack_gap = 70
 
-                dx, _ = draw_isometric_box(
-                    ax,
-                    x_cursor,
-                    0,
-                    ancho,
-                    shelf_height,
-                    profundo,
-                    face_color='wheat',
-                    side_color='#D2B48C',
-                    top_color='#F5DEB3'
-                )
+            for (ancho, profundo), qty in groups:
+                dx = profundo * 0.45
+                for level in range(qty):
+                    y_pos = level * stack_gap
+                    draw_isometric_box(
+                        ax,
+                        x_cursor,
+                        y_pos,
+                        ancho,
+                        shelf_height,
+                        profundo,
+                        face_color='wheat',
+                        side_color='#D2B48C',
+                        top_color='#F5DEB3'
+                    )
 
-                ax.text(x_cursor + ancho / 2, -90, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7)
-                x_cursor += ancho + dx + max(120, ancho * 0.15)
+                dim_text = format_dimensions(ancho, profundo_mm=profundo)
+                if qty > 1:
+                    dim_text += f" (x{qty})"
+                ax.text(x_cursor + ancho / 2, -90, dim_text, ha='center', va='top', fontsize=7)
+                x_cursor += ancho + dx + max(140, ancho * 0.2)
 
             ax.set_xlim(-50, x_cursor)
-            ax.set_ylim(-120, shelf_height + (max_prof * 0.4) + 60)
+            ax.set_ylim(-120, (max_qty - 1) * stack_gap + shelf_height + (max_prof * 0.4) + 60)
             ax.set_aspect('equal')
             ax.axis('off')
 
             st.pyplot(fig)
             plt.close()
 
-        # Dibujar maderas juntas
+        # Dibujar maderas agrupadas por medida
         if project.get('woods'):
             st.markdown("### Maderas Independientes")
 
-            woods = []
+            grouped_woods = {}
             for wood in project['woods']:
-                for _ in range(max(1, wood.get('cantidad', 1))):
-                    woods.append(wood)
+                key = (wood.get('ancho_mm', 500), wood.get('profundo_mm', 200))
+                grouped_woods[key] = grouped_woods.get(key, 0) + max(1, int(wood.get('cantidad', 1)))
 
-            max_prof = max([w.get('profundo_mm', 200) for w in woods])
-            fig, ax = plt.subplots(figsize=(max(7, min(14, len(woods) * 1.8)), 2.8))
+            groups = list(grouped_woods.items())
+            max_qty = max([qty for _, qty in groups])
+            max_prof = max([dims[1] for dims, _ in groups])
+            fig, ax = plt.subplots(figsize=(max(7, min(14, len(groups) * 2.0)), max(3.0, 2.2 + (max_qty - 1) * 0.65)))
 
             x_cursor = 0
             wood_height = 40
-            for wood in woods:
-                ancho = wood.get('ancho_mm', 500)
-                profundo = wood.get('profundo_mm', 200)
+            stack_gap = 62
 
-                rect = patches.Rectangle((x_cursor, 0), ancho, wood_height, linewidth=1.2,
-                                        edgecolor='saddlebrown', facecolor='burlywood', alpha=0.75)
-                ax.add_patch(rect)
-                ax.text(x_cursor + ancho / 2, -75, format_dimensions(ancho, profundo_mm=profundo), ha='center', va='top', fontsize=7)
+            for (ancho, profundo), qty in groups:
+                for level in range(qty):
+                    y_pos = level * stack_gap
+                    rect = patches.Rectangle(
+                        (x_cursor, y_pos),
+                        ancho,
+                        wood_height,
+                        linewidth=1.2,
+                        edgecolor='saddlebrown',
+                        facecolor='burlywood',
+                        alpha=0.75
+                    )
+                    ax.add_patch(rect)
 
-                x_cursor += ancho + max(120, ancho * 0.15)
+                dim_text = format_dimensions(ancho, profundo_mm=profundo)
+                if qty > 1:
+                    dim_text += f" (x{qty})"
+                ax.text(x_cursor + ancho / 2, -75, dim_text, ha='center', va='top', fontsize=7)
+                x_cursor += ancho + max(135, ancho * 0.2)
 
             ax.set_xlim(-50, x_cursor)
-            ax.set_ylim(-105, wood_height + (max_prof * 0.05) + 50)
+            ax.set_ylim(-105, (max_qty - 1) * stack_gap + wood_height + (max_prof * 0.05) + 50)
             ax.set_aspect('equal')
             ax.axis('off')
 

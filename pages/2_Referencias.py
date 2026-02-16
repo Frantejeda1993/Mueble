@@ -15,6 +15,7 @@ def get_firebase():
     return st.session_state.firebase
 
 firebase = get_firebase()
+st.session_state.active_nav_page = 'references'
 
 st.title("📚 Referencias y Configuración")
 
