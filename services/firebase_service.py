@@ -1,11 +1,13 @@
 import streamlit as st
 from google.cloud import firestore
+from google.api_core import exceptions as gcloud_exceptions
 import firebase_admin
 from firebase_admin import credentials
 import json
 import base64
 from typing import List, Dict, Optional
 from datetime import datetime
+import time
 
 class FirebaseService:
     """Servicio para manejar todas las operaciones con Firebase"""
@@ -82,6 +84,26 @@ class FirebaseService:
                 raise
     
     # ========== PROYECTOS ==========
+
+    def _run_with_retries(self, operation, *, max_retries: int = 3, base_delay: float = 1.5):
+        """Ejecuta una operación de Firestore con reintentos en errores transitorios."""
+        attempt = 0
+        while True:
+            try:
+                return operation()
+            except (gcloud_exceptions.DeadlineExceeded,
+                    gcloud_exceptions.ServiceUnavailable,
+                    gcloud_exceptions.InternalServerError,
+                    gcloud_exceptions.RetryError) as e:
+                attempt += 1
+                if attempt > max_retries:
+                    raise Exception(
+                        "Timeout de Firebase tras varios intentos. "
+                        "Revisa conexión/red y el estado de Firestore."
+                    ) from e
+
+                delay = base_delay * attempt
+                time.sleep(delay)
     
     def create_project(self, project_data: Dict) -> str:
         """Crea un nuevo proyecto"""
@@ -89,9 +111,9 @@ class FirebaseService:
             # Configurar timeout más largo
             doc_ref = self.db.collection('projects').document()
             project_data['date'] = datetime.now()
-            
-            # Intentar crear con timeout
-            doc_ref.set(project_data, timeout=30.0)
+
+            # Intentar crear con timeout + reintentos en errores transitorios
+            self._run_with_retries(lambda: doc_ref.set(project_data, timeout=60.0))
             return doc_ref.id
         except Exception as e:
             raise Exception(f"Error creando proyecto: {str(e)}")
