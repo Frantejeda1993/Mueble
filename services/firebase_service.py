@@ -17,8 +17,10 @@ class FirebaseService:
         """Inicializa la conexión con Firebase"""
         self.project_id = self._init_firebase()
         try:
-            # Crear cliente de Firestore con project_id explícito
-            self.db = firestore.Client(project=self.project_id)
+            # Reutilizar credenciales del Admin SDK para evitar dependencia de ADC/metadata server
+            app = firebase_admin.get_app()
+            google_creds = app.credential.get_credential()
+            self.db = firestore.Client(project=self.project_id, credentials=google_creds)
         except Exception as e:
             st.error(f"Error conectando con Firestore: {str(e)}")
             st.info("Verifica que Firestore esté activado en tu proyecto de Firebase")
