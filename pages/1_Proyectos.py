@@ -1,4 +1,8 @@
+import copy
+import json
+
 import streamlit as st
+import streamlit.components.v1 as components
 from services.firebase_service import FirebaseService
 from services.calculation_service import CalculationService
 from services.pdf_service import PDFService
@@ -45,6 +49,74 @@ def save_project_data(firebase_service, project_id, project_name, project_client
 
     new_id = firebase_service.create_project(payload)
     return new_id, "✅ Proyecto creado correctamente"
+
+
+def _normalize_project_for_compare(project_data):
+    """Normaliza datos para comparar cambios sin falsos positivos."""
+    normalized = copy.deepcopy(project_data)
+    date_value = normalized.get('date')
+    if hasattr(date_value, 'date'):
+        normalized['date'] = date_value.date().isoformat()
+    elif date_value is not None:
+        normalized['date'] = str(date_value)
+    return normalized
+
+
+def serialize_project_state(project_data):
+    """Serializa el proyecto para comparar cambios pendientes de guardado."""
+    normalized = _normalize_project_for_compare(project_data)
+    return json.dumps(normalized, sort_keys=True, default=str)
+
+
+def enable_unsaved_changes_guard(enabled):
+    """Muestra alerta nativa del navegador al salir con cambios sin guardar."""
+    if enabled:
+        components.html(
+            """
+            <script>
+                window.onbeforeunload = function () {
+                    return 'Hay cambios sin guardar. ¿Seguro que quieres salir?';
+                };
+            </script>
+            """,
+            height=0,
+        )
+    else:
+        components.html("<script>window.onbeforeunload = null;</script>", height=0)
+
+
+def draw_dimension_labels(ax, x, y, width, height, depth, dx, dy):
+    """Imprime medidas sobre el lado correspondiente del módulo."""
+    dim_style = dict(fontsize=8, color='#1B263B', fontweight='bold')
+
+    # Ancho en el frente inferior (más separado del dibujo)
+    ax.annotate('', xy=(x, y - 68), xytext=(x + width, y - 68),
+                arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
+    ax.text(x + width / 2, y - 82, f"A {int(width)} mm", ha='center', va='top', **dim_style)
+
+    # Alto en lateral izquierdo (más separado)
+    ax.annotate('', xy=(x - 68, y), xytext=(x - 68, y + height),
+                arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
+    ax.text(x - 84, y + height / 2, f"H {int(height)} mm", ha='right', va='center', rotation=90, **dim_style)
+
+    # Profundidad desplazada fuera de la arista para no ensuciar
+    ax.annotate('', xy=(x + width + 14, y + height + 14), xytext=(x + width + dx + 22, y + height + dy + 22),
+                arrowprops=dict(arrowstyle='<->', color='#1B263B', lw=1))
+    ax.text(x + width + (dx / 2) + 30, y + height + (dy / 2) + 28, f"P {int(depth)} mm",
+            ha='left', va='bottom', rotation=25, **dim_style)
+
+
+def prepare_grouped_items(items, default_name):
+    """Prepara piezas agrupadas por item: cantidad apilada, items distintos en columnas."""
+    grouped = []
+    for idx, item in enumerate(items):
+        grouped.append({
+            'nombre': item.get('nombre') or f"{default_name} {idx + 1}",
+            'ancho_mm': item.get('ancho_mm', 0),
+            'profundo_mm': item.get('profundo_mm', 0),
+            'cantidad': max(1, int(item.get('cantidad', 1)))
+        })
+    return grouped
 
 
 def draw_isometric_box(ax, x, y, width, height, depth, face_color='#ADD8E6', side_color='#8FB8D8', top_color='#C6E2F5'):
@@ -257,13 +329,6 @@ if st.session_state.project_mode == 'list':
 # ========== VISTA EDICIÓN ==========
 elif st.session_state.project_mode == 'edit':
     
-    # Botón volver
-    if st.button("← Volver a lista"):
-        st.session_state.project_mode = 'list'
-        st.session_state.edit_project = None
-        st.session_state.edit_project_cache_id = None
-        st.rerun()
-    
     st.markdown("---")
     
     # Cargar proyecto editable en session_state para no perder cambios en cada recarga
@@ -297,8 +362,10 @@ elif st.session_state.project_mode == 'edit':
 
         st.session_state.edit_project = loaded_project
         st.session_state.edit_project_cache_id = cache_id
+        st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(loaded_project))
 
     project = st.session_state.edit_project
+    saved_snapshot = st.session_state.get('saved_project_snapshot', serialize_project_state(copy.deepcopy(project)))
     
     # Información básica
     st.subheader("Información del Proyecto")
@@ -318,7 +385,40 @@ elif st.session_state.project_mode == 'edit':
     project['client'] = project_client
     project['date'] = datetime.combine(project_date, datetime.min.time())
     project['status'] = project_status
-    
+
+    current_snapshot = serialize_project_state(copy.deepcopy(project))
+    has_unsaved_changes = current_snapshot != saved_snapshot
+    enable_unsaved_changes_guard(has_unsaved_changes)
+
+    if has_unsaved_changes:
+        st.warning("Hay cambios sin guardar.")
+
+    col_back, _ = st.columns([1, 3])
+    with col_back:
+        if st.button("← Volver a lista"):
+            if has_unsaved_changes:
+                st.session_state.confirm_leave_project = True
+            else:
+                st.session_state.project_mode = 'list'
+                st.session_state.edit_project = None
+                st.session_state.edit_project_cache_id = None
+                st.rerun()
+
+    if st.session_state.get('confirm_leave_project'):
+        st.warning("Tienes cambios sin guardar. ¿Quieres salir igualmente?")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ Salir sin guardar", key="confirm_leave_yes"):
+                st.session_state.confirm_leave_project = False
+                st.session_state.project_mode = 'list'
+                st.session_state.edit_project = None
+                st.session_state.edit_project_cache_id = None
+                st.rerun()
+        with c2:
+            if st.button("Cancelar", key="confirm_leave_no"):
+                st.session_state.confirm_leave_project = False
+                st.rerun()
+
     # Botón guardar
     col_save, col_delete = st.columns([3, 1])
     with col_save:
@@ -336,6 +436,7 @@ elif st.session_state.project_mode == 'edit':
                 st.session_state.current_project_id = current_id
                 st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
+                st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(project))
                 st.success(success_msg)
                 if "creado" in success_msg:
                     st.rerun()
@@ -345,9 +446,17 @@ elif st.session_state.project_mode == 'edit':
     with col_delete:
         if st.session_state.current_project_id:
             if st.button("🗑️ Eliminar", use_container_width=True):
+                st.session_state.confirm_delete_project = True
+
+    if st.session_state.get('confirm_delete_project') and st.session_state.current_project_id:
+        st.error("¿Confirmas eliminar este proyecto?")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🗑️ Sí, eliminar proyecto", key="confirm_delete_project_yes", use_container_width=True):
                 try:
                     firebase.delete_project(st.session_state.current_project_id)
                     st.success("Proyecto eliminado")
+                    st.session_state.confirm_delete_project = False
                     st.session_state.project_mode = 'list'
                     st.session_state.current_project_id = None
                     st.session_state.edit_project = None
@@ -355,6 +464,10 @@ elif st.session_state.project_mode == 'edit':
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error eliminando: {str(e)}")
+        with c2:
+            if st.button("Cancelar", key="confirm_delete_project_no", use_container_width=True):
+                st.session_state.confirm_delete_project = False
+                st.rerun()
     
     st.markdown("---")
     
@@ -448,9 +561,21 @@ elif st.session_state.project_mode == 'edit':
                     module['cantidad_estantes'] = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
                     module['cantidad_divisiones'] = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
 
+                delete_key = f"confirm_del_mod_{idx}"
                 if st.button(f"🗑️ Eliminar módulo {idx + 1}", key=f"del_mod_{idx}"):
-                    project['modules'].pop(idx)
-                    st.rerun()
+                    st.session_state[delete_key] = True
+                if st.session_state.get(delete_key):
+                    st.warning("¿Eliminar este módulo?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Confirmar", key=f"ok_del_mod_{idx}"):
+                            project['modules'].pop(idx)
+                            st.session_state[delete_key] = False
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancelar", key=f"cancel_del_mod_{idx}"):
+                            st.session_state[delete_key] = False
+                            st.rerun()
 
         if st.button("💾 Guardar cambios de módulos", key="save_modules", type="primary", use_container_width=True):
             try:
@@ -466,6 +591,7 @@ elif st.session_state.project_mode == 'edit':
                 st.session_state.current_project_id = current_id
                 st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
+                st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(project))
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de módulos: {str(e)}")
@@ -508,9 +634,21 @@ elif st.session_state.project_mode == 'edit':
                         key=f"shelf_mat_{idx}"
                     )
                 
+                delete_key = f"confirm_del_shelf_{idx}"
                 if st.button(f"🗑️ Eliminar estante {idx + 1}", key=f"del_shelf_{idx}"):
-                    project['shelves'].pop(idx)
-                    st.rerun()
+                    st.session_state[delete_key] = True
+                if st.session_state.get(delete_key):
+                    st.warning("¿Eliminar este estante?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Confirmar", key=f"ok_del_shelf_{idx}"):
+                            project['shelves'].pop(idx)
+                            st.session_state[delete_key] = False
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancelar", key=f"cancel_del_shelf_{idx}"):
+                            st.session_state[delete_key] = False
+                            st.rerun()
 
         if st.button("💾 Guardar cambios de estantes", key="save_shelves", use_container_width=True):
             try:
@@ -526,6 +664,7 @@ elif st.session_state.project_mode == 'edit':
                 st.session_state.current_project_id = current_id
                 st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
+                st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(project))
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de estantes: {str(e)}")
@@ -568,9 +707,21 @@ elif st.session_state.project_mode == 'edit':
                         key=f"wood_mat_{idx}"
                     )
                 
+                delete_key = f"confirm_del_wood_{idx}"
                 if st.button(f"🗑️ Eliminar madera {idx + 1}", key=f"del_wood_{idx}"):
-                    project['woods'].pop(idx)
-                    st.rerun()
+                    st.session_state[delete_key] = True
+                if st.session_state.get(delete_key):
+                    st.warning("¿Eliminar esta madera?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Confirmar", key=f"ok_del_wood_{idx}"):
+                            project['woods'].pop(idx)
+                            st.session_state[delete_key] = False
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancelar", key=f"cancel_del_wood_{idx}"):
+                            st.session_state[delete_key] = False
+                            st.rerun()
 
         if st.button("💾 Guardar cambios de maderas", key="save_woods", use_container_width=True):
             try:
@@ -586,6 +737,7 @@ elif st.session_state.project_mode == 'edit':
                 st.session_state.current_project_id = current_id
                 st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
+                st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(project))
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de maderas: {str(e)}")
@@ -652,9 +804,21 @@ elif st.session_state.project_mode == 'edit':
                             help="Tomado automáticamente de Referencias > Herrajes"
                         )
                 
+                delete_key = f"confirm_del_hw_{idx}"
                 if st.button(f"🗑️ Eliminar herraje {idx + 1}", key=f"del_hw_{idx}"):
-                    project['hardwares'].pop(idx)
-                    st.rerun()
+                    st.session_state[delete_key] = True
+                if st.session_state.get(delete_key):
+                    st.warning("¿Eliminar este herraje?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Confirmar", key=f"ok_del_hw_{idx}"):
+                            project['hardwares'].pop(idx)
+                            st.session_state[delete_key] = False
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancelar", key=f"cancel_del_hw_{idx}"):
+                            st.session_state[delete_key] = False
+                            st.rerun()
 
         if st.button("💾 Guardar cambios de herrajes", key="save_hardwares", use_container_width=True):
             try:
@@ -670,6 +834,7 @@ elif st.session_state.project_mode == 'edit':
                 st.session_state.current_project_id = current_id
                 st.session_state.last_opened_project_id = current_id
                 st.session_state.edit_project_cache_id = current_id
+                st.session_state.saved_project_snapshot = serialize_project_state(copy.deepcopy(project))
                 st.success(success_msg)
             except Exception as e:
                 st.error(f"Error guardando cambios de herrajes: {str(e)}")
@@ -735,8 +900,13 @@ elif st.session_state.project_mode == 'edit':
                     value=project.get('final_price', calculations['total_calculated']),
                     help="Precio editable que se mostrará al cliente"
                 )
-            
-            st.info(f"💼 Mano de obra en PDF: {calculations['labor_for_invoice']:.2f} €")
+
+            calculations_live = CalculationService.calculate_all_project_costs(
+                project,
+                materials_db_list,
+                cutting_service
+            )
+            st.info(f"💼 Mano de obra en PDF: {calculations_live['labor_for_invoice']:.2f} € | 🏷️ Descuento: {calculations_live.get('discount_for_invoice', 0.0):.2f} €")
             
         except Exception as e:
             st.error(f"Error calculando costos: {str(e)}")
@@ -744,7 +914,7 @@ elif st.session_state.project_mode == 'edit':
     # TAB: VISTA GRÁFICA
     with tabs[5]:
         st.subheader("📊 Vista Gráfica")
-        
+
         # Dibujar cada módulo por separado
         if project.get('modules'):
             st.markdown("### Módulos")
@@ -753,10 +923,10 @@ elif st.session_state.project_mode == 'edit':
                 alto = module.get('alto_mm', 2000)
                 ancho = module.get('ancho_mm', 1000)
                 profundo = module.get('profundo_mm', 400)
-                fig, ax = plt.subplots(figsize=(7, 4))
+                fig, ax = plt.subplots(figsize=(7, 4.8))
 
                 puertas = module.get('cantidad_puertas', 0) if module.get('tiene_puertas') else 0
-                draw_module_structure(
+                dx, dy = draw_module_structure(
                     ax,
                     0,
                     0,
@@ -766,6 +936,7 @@ elif st.session_state.project_mode == 'edit':
                     has_back=module.get('tiene_fondo', False),
                     door_count=puertas
                 )
+                draw_dimension_labels(ax, 0, 0, ancho, alto, profundo, dx, dy)
 
                 estantes = module.get('cantidad_estantes', 0)
                 if estantes > 0:
@@ -782,42 +953,36 @@ elif st.session_state.project_mode == 'edit':
                         ax.plot([x_pos, x_pos], [25, alto - 25], linestyle='--', color='#2E7D32', linewidth=1)
 
                 label = module.get('nombre', f'Módulo {idx + 1}')
-                dim_label = format_dimensions(ancho, alto, profundo)
-                if module.get('tiene_fondo'):
-                    dim_label += " • Fondo"
-                if puertas > 0:
-                    dim_label += f" • {puertas} puerta(s)"
+                ax.text(ancho / 2, alto + (profundo * 0.35) + 45, label, ha='center', va='bottom', fontsize=11, fontweight='bold', color='#0B132B')
 
-                st.caption(f"{label} — {dim_label}")
-
-                ax.set_xlim(-80, ancho + (profundo * 0.35) + 120)
-                ax.set_ylim(-alto * 0.18, alto + (profundo * 0.35) + 60)
+                ax.set_xlim(-140, ancho + (profundo * 0.35) + 140)
+                ax.set_ylim(-140, alto + (profundo * 0.35) + 120)
                 ax.set_aspect('equal')
                 ax.axis('off')
 
                 st.pyplot(fig)
                 plt.close()
 
-        # Dibujar estantes agrupados por medida
+        # Dibujar estantes: cantidades del mismo item apiladas, items distintos en columnas
         if project.get('shelves'):
             st.markdown("### Estantes Independientes")
 
-            grouped_shelves = {}
-            for shelf in project['shelves']:
-                key = (shelf.get('ancho_mm', 800), shelf.get('profundo_mm', 300))
-                grouped_shelves[key] = grouped_shelves.get(key, 0) + max(1, int(shelf.get('cantidad', 1)))
-
-            groups = list(grouped_shelves.items())
-            max_prof = max([dims[1] for dims, _ in groups])
-            max_qty = max([qty for _, qty in groups])
-            fig, ax = plt.subplots(figsize=(max(7, min(14, len(groups) * 2.2)), max(3.2, 2.4 + (max_qty - 1) * 0.7)))
+            shelves_grouped = prepare_grouped_items(project['shelves'], 'Estante')
+            max_prof = max([piece['profundo_mm'] for piece in shelves_grouped]) if shelves_grouped else 300
+            max_qty = max([piece['cantidad'] for piece in shelves_grouped]) if shelves_grouped else 1
+            fig, ax = plt.subplots(figsize=(max(8, min(16, len(shelves_grouped) * 2.4)), max(4.8, 3.8 + max_qty * 0.5)))
 
             x_cursor = 0
             shelf_height = 45
-            stack_gap = 70
+            stack_gap = 68
 
-            for (ancho, profundo), qty in groups:
+            for piece in shelves_grouped:
+                ancho = piece.get('ancho_mm', 800)
+                profundo = piece.get('profundo_mm', 300)
+                nombre = piece.get('nombre', 'Estante')
+                qty = piece.get('cantidad', 1)
                 dx = profundo * 0.45
+
                 for level in range(qty):
                     y_pos = level * stack_gap
                     draw_isometric_box(
@@ -832,39 +997,38 @@ elif st.session_state.project_mode == 'edit':
                         top_color='#F5DEB3'
                     )
 
-                dim_text = format_dimensions(ancho, profundo_mm=profundo)
-                if qty > 1:
-                    dim_text += f" (x{qty})"
-                ax.text(x_cursor + ancho / 2, -90, dim_text, ha='center', va='top', fontsize=7)
-                x_cursor += ancho + dx + max(140, ancho * 0.2)
+                top_y = (qty - 1) * stack_gap + shelf_height + (profundo * 0.30)
+                ax.text(x_cursor + ancho / 2, top_y + 30, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
+                suffix = f" (x{qty})" if qty > 1 else ''
+                ax.text(x_cursor + ancho / 2, -34, f"{format_dimensions(ancho, profundo_mm=profundo)}{suffix}", ha='center', va='top', fontsize=7.5)
+                x_cursor += ancho + dx + max(120, ancho * 0.14)
 
-            ax.set_xlim(-50, x_cursor)
-            ax.set_ylim(-120, (max_qty - 1) * stack_gap + shelf_height + (max_prof * 0.4) + 60)
+            ax.set_xlim(-40, x_cursor)
+            ax.set_ylim(-72, (max_qty - 1) * stack_gap + shelf_height + (max_prof * 0.42) + 95)
             ax.set_aspect('equal')
             ax.axis('off')
 
             st.pyplot(fig)
             plt.close()
 
-        # Dibujar maderas agrupadas por medida
+        # Dibujar maderas: cantidades del mismo item apiladas, items distintos en columnas
         if project.get('woods'):
             st.markdown("### Maderas Independientes")
 
-            grouped_woods = {}
-            for wood in project['woods']:
-                key = (wood.get('ancho_mm', 500), wood.get('profundo_mm', 200))
-                grouped_woods[key] = grouped_woods.get(key, 0) + max(1, int(wood.get('cantidad', 1)))
-
-            groups = list(grouped_woods.items())
-            max_qty = max([qty for _, qty in groups])
-            max_prof = max([dims[1] for dims, _ in groups])
-            fig, ax = plt.subplots(figsize=(max(7, min(14, len(groups) * 2.0)), max(3.0, 2.2 + (max_qty - 1) * 0.65)))
+            woods_grouped = prepare_grouped_items(project['woods'], 'Madera')
+            max_qty = max([piece['cantidad'] for piece in woods_grouped]) if woods_grouped else 1
+            fig, ax = plt.subplots(figsize=(max(8, min(16, len(woods_grouped) * 2.2)), max(4.0, 3.0 + max_qty * 0.45)))
 
             x_cursor = 0
             wood_height = 40
-            stack_gap = 62
+            stack_gap = 58
 
-            for (ancho, profundo), qty in groups:
+            for piece in woods_grouped:
+                ancho = piece.get('ancho_mm', 500)
+                profundo = piece.get('profundo_mm', 200)
+                nombre = piece.get('nombre', 'Madera')
+                qty = piece.get('cantidad', 1)
+
                 for level in range(qty):
                     y_pos = level * stack_gap
                     rect = patches.Rectangle(
@@ -878,61 +1042,56 @@ elif st.session_state.project_mode == 'edit':
                     )
                     ax.add_patch(rect)
 
-                dim_text = format_dimensions(ancho, profundo_mm=profundo)
-                if qty > 1:
-                    dim_text += f" (x{qty})"
-                ax.text(x_cursor + ancho / 2, -75, dim_text, ha='center', va='top', fontsize=7)
-                x_cursor += ancho + max(135, ancho * 0.2)
+                top_y = (qty - 1) * stack_gap + wood_height
+                ax.text(x_cursor + ancho / 2, top_y + 22, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
+                suffix = f" (x{qty})" if qty > 1 else ''
+                ax.text(x_cursor + ancho / 2, -24, f"{format_dimensions(ancho, profundo_mm=profundo)}{suffix}", ha='center', va='top', fontsize=7.5)
+                x_cursor += ancho + max(120, ancho * 0.16)
 
-            ax.set_xlim(-50, x_cursor)
-            ax.set_ylim(-105, (max_qty - 1) * stack_gap + wood_height + (max_prof * 0.05) + 50)
+            ax.set_xlim(-40, x_cursor)
+            ax.set_ylim(-55, (max_qty - 1) * stack_gap + wood_height + 70)
             ax.set_aspect('equal')
             ax.axis('off')
 
             st.pyplot(fig)
             plt.close()
-    
+
     # TAB: PDF
     with tabs[6]:
         st.subheader("📄 Generar PDF")
         
-        if st.button("📥 Descargar PDF", type="primary"):
-            try:
-                # Calcular costos
-                materials_db_list = firebase.get_all_materials()
-                cutting_service = firebase.get_cutting_service()
-                
-                materials_dict_for_pdf = {
-                    f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m 
-                    for m in materials_db_list
-                }
-                
-                calculations = CalculationService.calculate_all_project_costs(
-                    project,
-                    materials_db_list,
-                    cutting_service
-                )
-                
-                # Obtener logo (ahora en base64)
-                logo_base64 = firebase.get_logo_base64()
-                
-                # Generar PDF
-                pdf_buffer = PDFService.generate_pdf(
-                    project,
-                    calculations,
-                    materials_dict_for_pdf,
-                    logo_base64
-                )
-                
-                # Descargar
-                st.download_button(
-                    label="⬇️ Descargar PDF",
-                    data=pdf_buffer,
-                    file_name=f"Presupuesto_{project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf"
-                )
-                
-                st.success("✅ PDF generado correctamente")
-                
-            except Exception as e:
-                st.error(f"Error generando PDF: {str(e)}")
+        try:
+            materials_db_list = firebase.get_all_materials()
+            cutting_service = firebase.get_cutting_service()
+
+            materials_dict_for_pdf = {
+                f"{m['type']}_{m.get('color', '')}_{m.get('thickness_mm', 0)}": m
+                for m in materials_db_list
+            }
+
+            calculations = CalculationService.calculate_all_project_costs(
+                project,
+                materials_db_list,
+                cutting_service
+            )
+
+            logo_base64 = firebase.get_logo_base64()
+
+            pdf_buffer = PDFService.generate_pdf(
+                project,
+                calculations,
+                materials_dict_for_pdf,
+                logo_base64
+            )
+
+            file_name = f"Presupuesto_{project_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            st.download_button(
+                label="📥 Descargar PDF",
+                data=pdf_buffer.getvalue(),
+                file_name=file_name,
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"Error generando PDF: {str(e)}")
