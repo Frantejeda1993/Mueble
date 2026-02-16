@@ -12,19 +12,21 @@ class FirebaseService:
     
     def __init__(self):
         """Inicializa la conexión con Firebase"""
-        self._init_firebase()
+        self.project_id = self._init_firebase()
         try:
-            self.db = firestore.Client()
+            # Crear cliente de Firestore con project_id explícito
+            self.db = firestore.Client(project=self.project_id)
         except Exception as e:
             st.error(f"Error conectando con Firestore: {str(e)}")
             st.info("Verifica que Firestore esté activado en tu proyecto de Firebase")
             raise
     
-    def _init_firebase(self):
-        """Inicializa Firebase Admin SDK"""
-        # Si ya está inicializado, no hacer nada
+    def _init_firebase(self) -> str:
+        """Inicializa Firebase Admin SDK y retorna el project_id"""
+        # Si ya está inicializado, obtener project_id
         if firebase_admin._apps:
-            return
+            app = firebase_admin.get_app()
+            return app.project_id
         
         try:
             # Intentar obtener credenciales de Streamlit secrets
@@ -40,14 +42,27 @@ class FirebaseService:
                     st.info("Ve a Settings > Secrets en Streamlit Cloud y verifica la configuración")
                     raise ValueError(f"Missing required fields: {missing_fields}")
                 
+                project_id = cred_dict['project_id']
                 cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred)
+                
+                return project_id
                 
             else:
                 # Para desarrollo local, intentar cargar desde archivo
                 try:
+                    with open('firebase-credentials.json', 'r') as f:
+                        cred_data = json.load(f)
+                    
+                    project_id = cred_data.get('project_id')
+                    if not project_id:
+                        raise ValueError("project_id not found in credentials")
+                    
                     cred = credentials.Certificate('firebase-credentials.json')
                     firebase_admin.initialize_app(cred)
+                    
+                    return project_id
+                    
                 except FileNotFoundError:
                     st.error("❌ No se encontró configuración de Firebase")
                     st.info("""
