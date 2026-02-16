@@ -224,10 +224,13 @@ class CalculationService:
                                     final_price: float,
                                     total_calculated: float) -> float:
         """
-        Calcula la mano de obra que debe aparecer en el PDF
-        mano_obra_factura = labor_cost_project + extra_complexity + (final_price - total_calculated)
+        Calcula la mano de obra que debe aparecer en el PDF.
+
+        Evita resultados negativos cuando el precio final no supera
+        los costos base del proyecto.
         """
-        return labor_cost_project + extra_complexity + (final_price - total_calculated)
+        labor_invoice = labor_cost_project + extra_complexity + (final_price - total_calculated)
+        return max(0.0, labor_invoice)
     
     @staticmethod
     def calculate_all_project_costs(project_data: Dict, 
