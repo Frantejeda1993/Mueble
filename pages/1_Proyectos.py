@@ -1227,19 +1227,21 @@ elif st.session_state.project_mode == 'edit':
             st.subheader("📊 Resumen de Costos")
             
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 material_total = sum(c['material_cost'] for c in calculations['material_costs'].values())
                 st.metric("Materiales", f"{material_total:.2f} €")
             
             with col2:
                 st.metric("Corte y canto", f"{calculations['cutting_cost']:.2f} €")
-            
-            with col3:
-                st.metric("Herrajes", f"{calculations['hardware_total']:.2f} €")
 
             subtotal_materials_cost = material_total + calculations['cutting_cost']
-            st.metric("Subtotal coste materiales", f"{subtotal_materials_cost:.2f} €")
+            with col3:
+                st.metric("Subtotal coste materiales", f"{subtotal_materials_cost:.2f} €")
+
+            col_hw, _ = st.columns(2)
+            with col_hw:
+                st.metric("Herrajes y extras", f"{calculations['hardware_total']:.2f} €")
 
             st.markdown("---")
             st.subheader("🧾 Resumen de Materiales")
@@ -1396,7 +1398,6 @@ elif st.session_state.project_mode == 'edit':
             fig, ax = plt.subplots(figsize=(max(8, min(16, len(woods_grouped) * 2.2)), max(4.0, 3.0 + max_qty * 0.45)))
 
             x_cursor = 0
-            wood_height = 40
             stack_gap = 58
 
             for piece in woods_grouped:
@@ -1410,7 +1411,7 @@ elif st.session_state.project_mode == 'edit':
                     rect = patches.Rectangle(
                         (x_cursor, y_pos),
                         ancho,
-                        wood_height,
+                        alto,
                         linewidth=1.2,
                         edgecolor='saddlebrown',
                         facecolor='burlywood',
@@ -1418,14 +1419,15 @@ elif st.session_state.project_mode == 'edit':
                     )
                     ax.add_patch(rect)
 
-                top_y = (qty - 1) * stack_gap + wood_height
+                top_y = (qty - 1) * stack_gap + alto
                 ax.text(x_cursor + ancho / 2, top_y + 22, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
                 suffix = f" (x{qty})" if qty > 1 else ''
                 ax.text(x_cursor + ancho / 2, -24, f"{format_dimensions(ancho, alto_mm=alto)}{suffix}", ha='center', va='top', fontsize=7.5)
                 x_cursor += ancho + max(120, ancho * 0.16)
 
             ax.set_xlim(-40, x_cursor)
-            ax.set_ylim(-55, (max_qty - 1) * stack_gap + wood_height + 70)
+            max_alto = max([piece.get('profundo_mm', 200) for piece in woods_grouped]) if woods_grouped else 200
+            ax.set_ylim(-55, (max_qty - 1) * stack_gap + max_alto + 70)
             ax.set_aspect('equal')
             ax.axis('off')
 
