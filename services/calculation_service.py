@@ -264,6 +264,14 @@ class CalculationService:
 
             drawer_config = module.get('cajones', {})
             if drawer_config and drawer_config.get('enabled', False):
+                drawer_qty = max(1, int(drawer_config.get('cantidad_cajones', 1)))
+                slide = drawer_config.get('corredera')
+                if slide:
+                    quantity = slide.get('quantity', drawer_qty)
+                    price = slide.get('price_unit', 0.0)
+                    total += price * quantity * cantidad_modulos
+
+                # Compatibilidad con proyectos antiguos
                 for hinge in drawer_config.get('bisagras', []):
                     quantity = hinge.get('quantity', 0)
                     price = hinge.get('price_unit', 0.0)
