@@ -91,6 +91,56 @@ class CalculationService:
         return surfaces
     
     @staticmethod
+    def calculate_drawer_surfaces(module: Dict) -> List[Dict]:
+        """Calcula superficies de material para cajones dentro de un módulo."""
+        drawer_config = module.get('cajones', {})
+        if not drawer_config or not drawer_config.get('enabled', False):
+            return []
+
+        ancho = drawer_config.get('ancho_mm', 0)
+        alto = drawer_config.get('alto_mm', 0)
+        profundo = drawer_config.get('profundo_mm', 0)
+        cantidad_cajones = max(0, int(drawer_config.get('cantidad_cajones', 0)))
+        cantidad_modulos = max(1, int(module.get('cantidad_modulos', 1)))
+        material = drawer_config.get('material', module.get('material', ''))
+        tipo = drawer_config.get('tipo', 'Magic')
+
+        if cantidad_cajones <= 0:
+            return []
+
+        surfaces = []
+
+        # Frente y fondo: ancho x alto x2
+        surfaces.append({
+            'descripcion': f'Cajón {tipo} frente/fondo (x{2 * cantidad_cajones})',
+            'material': material,
+            'm2_unitario': CalculationService.mm_to_m2(ancho, alto),
+            'm2_total': CalculationService.mm_to_m2(ancho, alto) * 2 * cantidad_cajones * cantidad_modulos,
+            'cantidad': 2 * cantidad_cajones * cantidad_modulos
+        })
+
+        # Base: ancho x profundo x1
+        surfaces.append({
+            'descripcion': f'Cajón {tipo} base (x{cantidad_cajones})',
+            'material': material,
+            'm2_unitario': CalculationService.mm_to_m2(ancho, profundo),
+            'm2_total': CalculationService.mm_to_m2(ancho, profundo) * cantidad_cajones * cantidad_modulos,
+            'cantidad': cantidad_cajones * cantidad_modulos
+        })
+
+        # Laterales solo para cajón completo: alto x profundo x2
+        if tipo == 'Completo':
+            surfaces.append({
+                'descripcion': f'Cajón completo lateral (x{2 * cantidad_cajones})',
+                'material': material,
+                'm2_unitario': CalculationService.mm_to_m2(alto, profundo),
+                'm2_total': CalculationService.mm_to_m2(alto, profundo) * 2 * cantidad_cajones * cantidad_modulos,
+                'cantidad': 2 * cantidad_cajones * cantidad_modulos
+            })
+
+        return surfaces
+
+    @staticmethod
     def calculate_shelf_surface(shelf: Dict) -> Dict:
         """Calcula superficie de estante independiente"""
         ancho = shelf['ancho_mm']
@@ -211,6 +261,13 @@ class CalculationService:
                 quantity = hardware.get('quantity', 0)
                 price = hardware.get('price_unit', 0.0)
                 total += price * quantity * cantidad_modulos
+
+            drawer_config = module.get('cajones', {})
+            if drawer_config and drawer_config.get('enabled', False):
+                for hinge in drawer_config.get('bisagras', []):
+                    quantity = hinge.get('quantity', 0)
+                    price = hinge.get('price_unit', 0.0)
+                    total += price * quantity * cantidad_modulos
         return total
     
     @staticmethod
@@ -266,6 +323,7 @@ class CalculationService:
         for module in project_data.get('modules', []):
             surfaces = CalculationService.calculate_module_surfaces(module)
             all_surfaces.extend(surfaces)
+            all_surfaces.extend(CalculationService.calculate_drawer_surfaces(module))
         
         # Procesar estantes
         for shelf in project_data.get('shelves', []):
