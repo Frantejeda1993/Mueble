@@ -265,6 +265,51 @@ def draw_module_structure(ax, x, y, width, height, depth, has_back=False, door_c
 
     return dx, dy
 
+
+def draw_module_drawers(ax, x, y, width, height, drawer_qty):
+    """Dibuja cajones en el frente del módulo cuando corresponda."""
+    if drawer_qty <= 0:
+        return
+
+    qty = max(1, int(drawer_qty))
+    usable_height = height * 0.86
+    start_y = y + (height - usable_height) / 2
+    drawer_height = usable_height / qty
+    side_margin = max(16, width * 0.06)
+    front_width = max(40, width - (2 * side_margin))
+
+    for index in range(qty):
+        drawer_y = start_y + (index * drawer_height) + (drawer_height * 0.08)
+        front_height = drawer_height * 0.76
+
+        ax.add_patch(
+            patches.Rectangle(
+                (x + side_margin, drawer_y),
+                front_width,
+                front_height,
+                facecolor='#F8E7D2',
+                edgecolor='#7A4E2F',
+                linewidth=1.2,
+                alpha=0.9
+            )
+        )
+
+        handle_w = min(80, front_width * 0.24)
+        handle_h = max(4, front_height * 0.08)
+        handle_x = x + side_margin + (front_width - handle_w) / 2
+        handle_y = drawer_y + (front_height - handle_h) / 2
+        ax.add_patch(
+            patches.Rectangle(
+                (handle_x, handle_y),
+                handle_w,
+                handle_h,
+                facecolor='#4B5563',
+                edgecolor='#374151',
+                linewidth=0.8,
+                alpha=0.95
+            )
+        )
+
 st.title("📁 Gestión de Proyectos")
 
 # Modo de vista
@@ -682,8 +727,6 @@ elif st.session_state.project_mode == 'edit':
                 drawers = module['cajones']
                 drawers.setdefault('cantidad_cajones', 0)
                 drawers.setdefault('corredera', {'type': 'Personalizado', 'category': 'Corredera', 'price_unit': 0.0})
-
-                st.markdown("<div style='margin-top:0.5rem;padding:0.65rem 0.8rem;border:1px solid #E5E7EB;border-radius:10px;background:#FAFAFA;color:#4B5563;font-size:0.9rem;'>🧩 Configuración de cajones del módulo</div>", unsafe_allow_html=True)
 
                 add_drawer_col, clear_drawer_col = st.columns([1, 1])
                 with add_drawer_col:
@@ -1112,6 +1155,9 @@ elif st.session_state.project_mode == 'edit':
             
             with col3:
                 st.metric("Herrajes", f"{calculations['hardware_total']:.2f} €")
+
+            subtotal_materials_cost = material_total + calculations['cutting_cost']
+            st.metric("Subtotal coste materiales", f"{subtotal_materials_cost:.2f} €")
             
             st.markdown("---")
             
@@ -1178,6 +1224,11 @@ elif st.session_state.project_mode == 'edit':
                     for i in range(1, divisiones + 1):
                         x_pos = i * spacing
                         ax.plot([x_pos, x_pos], [25, alto - 25], linestyle='--', color='#2E7D32', linewidth=1)
+
+                drawer_config = module.get('cajones', {})
+                drawer_qty = int(drawer_config.get('cantidad_cajones', 0)) if drawer_config.get('enabled', False) else 0
+                if drawer_qty > 0:
+                    draw_module_drawers(ax, 0, 0, ancho, alto, drawer_qty)
 
                 label = module.get('nombre', f'Módulo {idx + 1}')
                 ax.text(ancho / 2, alto + (profundo * 0.35) + 45, label, ha='center', va='bottom', fontsize=11, fontweight='bold', color='#0B132B')
