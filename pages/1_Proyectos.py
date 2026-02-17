@@ -72,6 +72,86 @@ def get_default_drawer_config(base_material=''):
         }
     }
 
+
+def build_material_summary_rows(calculations, materials_db_list):
+    """Construye filas para resumir m2, tablas y valor por madera."""
+    materials_by_key = {
+        f"{mat['type']}_{mat.get('color', '')}_{mat.get('thickness_mm', 0)}": mat
+        for mat in materials_db_list
+    }
+
+    rows = []
+    for material_key, m2_total in calculations.get('material_totals', {}).items():
+        cost_data = calculations.get('material_costs', {}).get(material_key, {})
+        material_info = materials_by_key.get(material_key, {})
+
+        rows.append({
+            'Madera': material_info.get('type', material_key),
+            'Color': material_info.get('color', '-'),
+            'Espesor (mm)': material_info.get('thickness_mm', '-'),
+            'm² utilizados': round(m2_total, 3),
+            'Tablas equivalentes': cost_data.get('boards_needed', 0),
+            'Valor (€)': round(cost_data.get('material_cost', 0.0), 2)
+        })
+
+    return rows
+
+
+def build_hardware_summary_rows(project):
+    """Construye filas para resumir tipo, cantidad y precios de herrajes usados."""
+    grouped = {}
+
+    def add_hardware_item(item, multiplier=1, default_name='Herraje'):
+        hardware_type = item.get('type', default_name)
+        unit_price = float(item.get('price_unit', 0.0) or 0.0)
+        quantity = float(item.get('quantity', 0) or 0) * multiplier
+
+        if quantity <= 0:
+            return
+
+        key = (hardware_type, unit_price)
+        if key not in grouped:
+            grouped[key] = {
+                'Tipo': hardware_type,
+                'Cantidad': 0,
+                'Precio unitario (€)': unit_price,
+                'Subtotal (€)': 0.0
+            }
+
+        grouped[key]['Cantidad'] += quantity
+        grouped[key]['Subtotal (€)'] += quantity * unit_price
+
+    for hardware in project.get('hardwares', []):
+        add_hardware_item(hardware)
+
+    for module in project.get('modules', []):
+        module_multiplier = max(1, int(module.get('cantidad_modulos', 1)))
+
+        for hardware in module.get('herrajes', []):
+            add_hardware_item(hardware, multiplier=module_multiplier)
+
+        drawer_config = module.get('cajones', {})
+        if drawer_config and drawer_config.get('enabled', False):
+            drawer_qty = max(1, int(drawer_config.get('cantidad_cajones', 1)))
+            slide = drawer_config.get('corredera')
+            if slide:
+                slide_quantity = slide.get('quantity', drawer_qty)
+                slide_with_quantity = {**slide, 'quantity': slide_quantity}
+                add_hardware_item(slide_with_quantity, multiplier=module_multiplier, default_name='Corredera cajón')
+
+            for hinge in drawer_config.get('bisagras', []):
+                add_hardware_item(hinge, multiplier=module_multiplier)
+
+    rows = []
+    for summary in grouped.values():
+        summary['Cantidad'] = int(summary['Cantidad']) if float(summary['Cantidad']).is_integer() else round(summary['Cantidad'], 2)
+        summary['Precio unitario (€)'] = round(summary['Precio unitario (€)'], 2)
+        summary['Subtotal (€)'] = round(summary['Subtotal (€)'], 2)
+        rows.append(summary)
+
+    rows.sort(key=lambda row: row['Tipo'])
+    return rows
+
 def save_project_data(firebase_service, project_id, project_name, project_client, project_date, project_status, project_data):
     """Guarda los datos actuales del proyecto"""
     payload = {
@@ -1158,7 +1238,23 @@ elif st.session_state.project_mode == 'edit':
 
             subtotal_materials_cost = material_total + calculations['cutting_cost']
             st.metric("Subtotal coste materiales", f"{subtotal_materials_cost:.2f} €")
-            
+
+            st.markdown("---")
+            st.subheader("🧾 Resumen de Materiales")
+
+            material_summary_rows = build_material_summary_rows(calculations, materials_db_list)
+            if material_summary_rows:
+                st.dataframe(material_summary_rows, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay maderas asociadas al proyecto para resumir.")
+
+            hardware_summary_rows = build_hardware_summary_rows(project)
+            st.markdown("#### Herrajes utilizados")
+            if hardware_summary_rows:
+                st.dataframe(hardware_summary_rows, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay herrajes cargados en el proyecto.")
+
             st.markdown("---")
             
             col1, col2 = st.columns(2)
