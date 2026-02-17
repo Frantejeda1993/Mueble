@@ -955,7 +955,7 @@ elif st.session_state.project_mode == 'edit':
                     wood['ancho_mm'] = st.number_input("Ancho (mm)", value=wood.get('ancho_mm', 500), key=f"wood_ancho_{idx}")
                 
                 with col2:
-                    wood['profundo_mm'] = st.number_input("Profundidad (mm)", value=wood.get('profundo_mm', 200), key=f"wood_prof_{idx}")
+                    wood['profundo_mm'] = st.number_input("Alto (mm)", value=wood.get('profundo_mm', 200), key=f"wood_prof_{idx}")
                     wood['cantidad'] = st.number_input("Cantidad", value=wood.get('cantidad', 1), min_value=1, key=f"wood_cant_{idx}")
                 
                 if material_options:
