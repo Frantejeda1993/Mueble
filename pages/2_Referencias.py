@@ -35,7 +35,7 @@ components.html(
 st.markdown("""
 En esta sección puedes configurar:
 - **Materiales**: Tipos de madera, colores, precios
-- **Herrajes**: Bisagras, tiradores, guías, etc.
+- **Herrajes**: Bisagras, correderas e ítems generales
 - **Servicio de Corte**: Precio y desperdicio
 - **Logo**: Logo para los PDFs
 """)
@@ -169,12 +169,14 @@ with tabs[0]:
 # ========== TAB: HERRAJES ==========
 with tabs[1]:
     st.subheader("Herrajes")
+    category_options = ["Bisagra", "Corredera", "Item general"]
     
     # Botón agregar
     if st.button("➕ Agregar Herraje"):
         try:
             new_hardware = {
                 'type': 'Nuevo Herraje',
+                'category': 'Bisagra',
                 'price_unit': 0.0,
                 'link': '',
                 'image_url': ''
@@ -192,80 +194,105 @@ with tabs[1]:
         if not hardwares:
             st.info("No hay herrajes registrados. Agrega el primero.")
         else:
+            grouped_hardware = {category: [] for category in category_options}
             for hardware in hardwares:
-                with st.expander(f"{hardware.get('type', '')} - {hardware.get('price_unit', 0):.2f}€"):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        hardware['type'] = st.text_input(
-                            "Tipo/Nombre", 
-                            hardware.get('type', ''), 
-                            key=f"hw_type_{hardware['id']}"
-                        )
-                        
-                        hardware['price_unit'] = st.number_input(
-                            "Precio unitario (€)", 
-                            value=hardware.get('price_unit', 0.0),
-                            key=f"hw_price_{hardware['id']}"
-                        )
-                    
-                    with col2:
-                        hardware['link'] = st.text_input(
-                            "Link (opcional)", 
-                            hardware.get('link', ''), 
-                            key=f"hw_link_{hardware['id']}"
-                        )
-                        
-                        hardware['image_url'] = st.text_input(
-                            "URL imagen (opcional)", 
-                            hardware.get('image_url', ''), 
-                            key=f"hw_img_{hardware['id']}"
-                        )
-                    
-                    # Mostrar imagen si existe
-                    if hardware.get('image_url'):
-                        try:
-                            st.image(hardware['image_url'], width=200)
-                        except:
-                            pass
-                    
-                    col_save, col_delete = st.columns([3, 1])
-                    
-                    with col_save:
-                        if st.button("💾 Guardar", key=f"save_hw_{hardware['id']}", use_container_width=True):
+                category = hardware.get('category', 'Item general')
+                if category not in grouped_hardware:
+                    category = 'Item general'
+                grouped_hardware[category].append(hardware)
+
+            for category in category_options:
+                st.markdown(f"### {category}s" if category != "Item general" else "### Items generales")
+                category_items = grouped_hardware.get(category, [])
+
+                if not category_items:
+                    st.caption(f"Sin {category.lower()}s cargadas" if category != "Item general" else "Sin items generales cargados")
+                    continue
+
+                for hardware in category_items:
+                    with st.expander(f"{hardware.get('type', '')} - {hardware.get('price_unit', 0):.2f}€"):
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            current_category = hardware.get('category', 'Item general')
+                            category_index = category_options.index(current_category) if current_category in category_options else category_options.index('Item general')
+                            hardware['category'] = st.selectbox(
+                                "Categoría",
+                                category_options,
+                                index=category_index,
+                                key=f"hw_category_{hardware['id']}"
+                            )
+
+                            hardware['type'] = st.text_input(
+                                "Tipo/Nombre",
+                                hardware.get('type', ''),
+                                key=f"hw_type_{hardware['id']}"
+                            )
+
+                            hardware['price_unit'] = st.number_input(
+                                "Precio unitario (€)",
+                                value=hardware.get('price_unit', 0.0),
+                                key=f"hw_price_{hardware['id']}"
+                            )
+
+                        with col2:
+                            hardware['link'] = st.text_input(
+                                "Link (opcional)",
+                                hardware.get('link', ''),
+                                key=f"hw_link_{hardware['id']}"
+                            )
+
+                            hardware['image_url'] = st.text_input(
+                                "URL imagen (opcional)",
+                                hardware.get('image_url', ''),
+                                key=f"hw_img_{hardware['id']}"
+                            )
+
+                        # Mostrar imagen si existe
+                        if hardware.get('image_url'):
                             try:
-                                hardware_data = {
-                                    'type': hardware['type'],
-                                    'price_unit': hardware['price_unit'],
-                                    'link': hardware['link'],
-                                    'image_url': hardware['image_url']
-                                }
-                                firebase.update_hardware(hardware['id'], hardware_data)
-                                st.success("✅ Herraje actualizado")
-                            except Exception as e:
-                                st.error(f"Error: {str(e)}")
-                    
-                    with col_delete:
-                        confirm_key = f"confirm_delete_hw_{hardware['id']}"
-                        if st.button("🗑️", key=f"del_hw_{hardware['id']}", use_container_width=True):
-                            st.session_state[confirm_key] = True
-                        if st.session_state.get(confirm_key):
-                            st.warning("¿Eliminar este herraje?")
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if st.button("Confirmar", key=f"ok_del_hw_{hardware['id']}"):
-                                    try:
-                                        firebase.delete_hardware(hardware['id'])
+                                st.image(hardware['image_url'], width=200)
+                            except:
+                                pass
+
+                        col_save, col_delete = st.columns([3, 1])
+
+                        with col_save:
+                            if st.button("💾 Guardar", key=f"save_hw_{hardware['id']}", use_container_width=True):
+                                try:
+                                    hardware_data = {
+                                        'category': hardware['category'],
+                                        'type': hardware['type'],
+                                        'price_unit': hardware['price_unit'],
+                                        'link': hardware['link'],
+                                        'image_url': hardware['image_url']
+                                    }
+                                    firebase.update_hardware(hardware['id'], hardware_data)
+                                    st.success("✅ Herraje actualizado")
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                        with col_delete:
+                            confirm_key = f"confirm_delete_hw_{hardware['id']}"
+                            if st.button("🗑️", key=f"del_hw_{hardware['id']}", use_container_width=True):
+                                st.session_state[confirm_key] = True
+                            if st.session_state.get(confirm_key):
+                                st.warning("¿Eliminar este herraje?")
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button("Confirmar", key=f"ok_del_hw_{hardware['id']}"):
+                                        try:
+                                            firebase.delete_hardware(hardware['id'])
+                                            st.session_state[confirm_key] = False
+                                            st.success("Herraje eliminado")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {str(e)}")
+                                with c2:
+                                    if st.button("Cancelar", key=f"cancel_del_hw_{hardware['id']}"):
                                         st.session_state[confirm_key] = False
-                                        st.success("Herraje eliminado")
                                         st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error: {str(e)}")
-                            with c2:
-                                if st.button("Cancelar", key=f"cancel_del_hw_{hardware['id']}"):
-                                    st.session_state[confirm_key] = False
-                                    st.rerun()
-    
+
     except Exception as e:
         st.error(f"Error cargando herrajes: {str(e)}")
 

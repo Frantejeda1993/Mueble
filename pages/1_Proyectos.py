@@ -27,6 +27,47 @@ def get_firebase():
 firebase = get_firebase()
 
 
+
+HARDWARE_CATEGORY_OPTIONS = ["Bisagra", "Corredera", "Item general"]
+
+
+def normalize_hardware_category(hardware):
+    category = hardware.get('category', 'Item general')
+    if category not in HARDWARE_CATEGORY_OPTIONS:
+        return 'Item general'
+    return category
+
+
+def get_hardware_catalog_by_category(firebase_service, allowed_categories=None):
+    try:
+        hardware_list = firebase_service.get_all_hardware()
+    except Exception:
+        return [], {}
+
+    filtered = []
+    for hardware in hardware_list:
+        category = normalize_hardware_category(hardware)
+        if allowed_categories and category not in allowed_categories:
+            continue
+        item = {**hardware, 'category': category}
+        filtered.append(item)
+
+    catalog = {h['type']: h for h in filtered if h.get('type')}
+    return filtered, catalog
+
+
+def get_default_drawer_config(base_material=''):
+    return {
+        'enabled': False,
+        'tipo': 'Magic',
+        'ancho_mm': 500,
+        'alto_mm': 150,
+        'profundo_mm': 450,
+        'cantidad_cajones': 1,
+        'material': base_material,
+        'bisagras': []
+    }
+
 def save_project_data(firebase_service, project_id, project_name, project_client, project_date, project_status, project_data):
     """Guarda los datos actuales del proyecto"""
     payload = {
@@ -501,16 +542,12 @@ elif st.session_state.project_mode == 'edit':
                 'cantidad_puertas': 0,
                 'cantidad_estantes': 0,
                 'cantidad_divisiones': 0,
-                'herrajes': []
+                'herrajes': [],
+                'cajones': get_default_drawer_config()
             })
 
-        try:
-            hardware_list = firebase.get_all_hardware()
-            hardware_options = [h['type'] for h in hardware_list]
-            hardware_dict = {h['type']: h for h in hardware_list}
-        except Exception:
-            hardware_options = []
-            hardware_dict = {}
+        hinge_list, hinge_dict = get_hardware_catalog_by_category(firebase, allowed_categories={'Bisagra'})
+        hinge_options = [h['type'] for h in hinge_list]
         
         for idx, module in enumerate(project.get('modules', [])):
             with st.expander(f"Módulo {idx + 1}: {module.get('nombre', '')}"):
@@ -583,27 +620,28 @@ elif st.session_state.project_mode == 'edit':
                     module['cantidad_estantes'] = st.number_input("Cantidad estantes", value=module.get('cantidad_estantes', 0), min_value=0, key=f"mod_est_{idx}")
                     module['cantidad_divisiones'] = st.number_input("Cantidad divisiones", value=module.get('cantidad_divisiones', 0), min_value=0, key=f"mod_div_{idx}")
 
-                st.markdown("**Herrajes del módulo**")
+                st.markdown("**Bisagras del módulo**")
                 if 'herrajes' not in module:
                     module['herrajes'] = []
 
-                if st.button("➕ Agregar herraje al módulo", key=f"mod_add_hw_{idx}"):
-                    module['herrajes'].append({'type': 'Personalizado', 'quantity': 1, 'price_unit': 0.0})
+                if st.button("➕ Agregar bisagra al módulo", key=f"mod_add_hw_{idx}"):
+                    module['herrajes'].append({'type': 'Personalizado', 'category': 'Bisagra', 'quantity': 1, 'price_unit': 0.0})
 
                 for hw_idx, mod_hw in enumerate(module.get('herrajes', [])):
                     hw_cols = st.columns([2, 1, 1, 1])
                     with hw_cols[0]:
                         selected_hw = st.selectbox(
-                            "Herraje",
-                            ["Personalizado"] + hardware_options,
-                            index=(["Personalizado"] + hardware_options).index(mod_hw.get('type', 'Personalizado')) if mod_hw.get('type', 'Personalizado') in (["Personalizado"] + hardware_options) else 0,
+                            "Bisagra",
+                            ["Personalizado"] + hinge_options,
+                            index=(["Personalizado"] + hinge_options).index(mod_hw.get('type', 'Personalizado')) if mod_hw.get('type', 'Personalizado') in (["Personalizado"] + hinge_options) else 0,
                             key=f"mod_hw_type_{idx}_{hw_idx}"
                         )
+                        mod_hw['category'] = 'Bisagra'
                         if selected_hw == "Personalizado":
                             mod_hw['type'] = st.text_input("Nombre", value=mod_hw.get('type', ''), key=f"mod_hw_custom_{idx}_{hw_idx}") or "Personalizado"
                         else:
                             mod_hw['type'] = selected_hw
-                            mod_hw['price_unit'] = hardware_dict.get(selected_hw, {}).get('price_unit', 0.0)
+                            mod_hw['price_unit'] = hinge_dict.get(selected_hw, {}).get('price_unit', 0.0)
                     with hw_cols[1]:
                         mod_hw['quantity'] = st.number_input("Cant.", value=int(mod_hw.get('quantity', 1)), min_value=1, key=f"mod_hw_qty_{idx}_{hw_idx}")
                     with hw_cols[2]:
@@ -619,6 +657,69 @@ elif st.session_state.project_mode == 'edit':
                             module['herrajes'].pop(hw_idx)
                             st.rerun()
 
+                module.setdefault('cajones', get_default_drawer_config(module.get('material', '')))
+                drawers = module['cajones']
+                drawers['enabled'] = st.checkbox("Agregar cajones", value=drawers.get('enabled', False), key=f"mod_draw_enabled_{idx}")
+
+                if drawers['enabled']:
+                    drawer_col1, drawer_col2 = st.columns(2)
+                    with drawer_col1:
+                        drawers['tipo'] = st.selectbox("Tipo de cajón", ["Magic", "Completo"], index=0 if drawers.get('tipo', 'Magic') == 'Magic' else 1, key=f"mod_draw_type_{idx}")
+                        drawers['ancho_mm'] = st.number_input("Ancho cajón (mm)", value=int(drawers.get('ancho_mm', 500)), min_value=1, key=f"mod_draw_width_{idx}")
+                        drawers['alto_mm'] = st.number_input("Alto cajón (mm)", value=int(drawers.get('alto_mm', 150)), min_value=1, key=f"mod_draw_height_{idx}")
+                    with drawer_col2:
+                        drawers['profundo_mm'] = st.number_input("Profundo cajón (mm)", value=int(drawers.get('profundo_mm', 450)), min_value=1, key=f"mod_draw_depth_{idx}")
+                        drawers['cantidad_cajones'] = st.number_input("Cantidad de cajones", value=int(drawers.get('cantidad_cajones', 1)), min_value=1, key=f"mod_draw_qty_{idx}")
+
+                        drawer_material = drawers.get('material', module.get('material', ''))
+                        if material_options:
+                            default_draw_material_idx = material_options.index(drawer_material) if drawer_material in material_options else 0
+                            drawers['material'] = st.selectbox(
+                                "Material cajón",
+                                material_options,
+                                index=default_draw_material_idx,
+                                format_func=lambda x: material_labels.get(x, x),
+                                key=f"mod_draw_mat_{idx}"
+                            )
+                        else:
+                            drawers['material'] = drawer_material
+
+                    st.markdown("**Bisagras de cajones**")
+                    drawers.setdefault('bisagras', [])
+                    if st.button("➕ Agregar bisagra de cajón", key=f"mod_draw_hinge_add_{idx}"):
+                        drawers['bisagras'].append({'type': 'Personalizado', 'category': 'Bisagra', 'quantity': 1, 'price_unit': 0.0})
+
+                    for hinge_idx, hinge in enumerate(drawers.get('bisagras', [])):
+                        hinge_cols = st.columns([2, 1, 1, 1])
+                        with hinge_cols[0]:
+                            selected_hinge = st.selectbox(
+                                "Bisagra",
+                                ["Personalizado"] + hinge_options,
+                                index=(["Personalizado"] + hinge_options).index(hinge.get('type', 'Personalizado')) if hinge.get('type', 'Personalizado') in (["Personalizado"] + hinge_options) else 0,
+                                key=f"mod_draw_hinge_type_{idx}_{hinge_idx}"
+                            )
+                            hinge['category'] = 'Bisagra'
+                            if selected_hinge == "Personalizado":
+                                hinge['type'] = st.text_input("Nombre bisagra", value=hinge.get('type', ''), key=f"mod_draw_hinge_custom_{idx}_{hinge_idx}") or "Personalizado"
+                            else:
+                                hinge['type'] = selected_hinge
+                                hinge['price_unit'] = hinge_dict.get(selected_hinge, {}).get('price_unit', 0.0)
+                        with hinge_cols[1]:
+                            hinge['quantity'] = st.number_input("Cant.", value=int(hinge.get('quantity', 1)), min_value=1, key=f"mod_draw_hinge_qty_{idx}_{hinge_idx}")
+                        with hinge_cols[2]:
+                            hinge['price_unit'] = st.number_input(
+                                "P. unitario (€)",
+                                value=float(hinge.get('price_unit', 0.0)),
+                                min_value=0.0,
+                                disabled=selected_hinge != "Personalizado",
+                                key=f"mod_draw_hinge_price_{idx}_{hinge_idx}"
+                            )
+                        with hinge_cols[3]:
+                            if st.button("🗑️", key=f"mod_draw_hinge_del_{idx}_{hinge_idx}"):
+                                drawers['bisagras'].pop(hinge_idx)
+                                st.rerun()
+                else:
+                    drawers['bisagras'] = []
                 actions_col1, actions_col2 = st.columns(2)
                 with actions_col1:
                     if st.button(f"📄 Copiar módulo {idx + 1}", key=f"copy_mod_{idx}", use_container_width=True):
@@ -812,21 +913,18 @@ elif st.session_state.project_mode == 'edit':
     # TAB: HERRAJES
     with tabs[3]:
         st.subheader("Herrajes")
+        st.caption("Aquí puedes agregar bisagras, correderas o items generales.")
         
         # Obtener herrajes de BD
-        try:
-            hardware_list = firebase.get_all_hardware()
-            hardware_options = ["Personalizado"] + [h['type'] for h in hardware_list]
-            hardware_dict = {h['type']: h for h in hardware_list}
-        except:
-            hardware_options = ["Personalizado"]
-            hardware_dict = {}
+        hardware_list, hardware_dict = get_hardware_catalog_by_category(firebase)
+        hardware_options = ["Personalizado"] + [h['type'] for h in hardware_list]
         
         if st.button("➕ Agregar Herraje"):
             if 'hardwares' not in project:
                 project['hardwares'] = []
             project['hardwares'].append({
                 'type': 'Herraje',
+                'category': 'Item general',
                 'quantity': 1,
                 'price_unit': 0.0
             })
@@ -834,24 +932,35 @@ elif st.session_state.project_mode == 'edit':
         for idx, hardware in enumerate(project.get('hardwares', [])):
             with st.expander(f"Herraje {idx + 1}: {hardware.get('type', '')}"):
                 col1, col2, col3 = st.columns(3)
-                
+
                 with col1:
+                    category = normalize_hardware_category(hardware)
+                    category_index = HARDWARE_CATEGORY_OPTIONS.index(category)
+                    hardware['category'] = st.selectbox(
+                        "Categoría",
+                        HARDWARE_CATEGORY_OPTIONS,
+                        index=category_index,
+                        key=f"hw_category_{idx}"
+                    )
+
+                    available_by_category = [h['type'] for h in hardware_list if h.get('category') == hardware['category']]
+                    type_options = ["Personalizado"] + available_by_category
+
                     current_hw_type = hardware.get('type', '')
-                    default_hw = current_hw_type if current_hw_type in hardware_dict else "Personalizado"
-                    default_index = hardware_options.index(default_hw) if default_hw in hardware_options else 0
-                    selected_hw = st.selectbox("Tipo", hardware_options, index=default_index, key=f"hw_type_{idx}")
+                    default_hw = current_hw_type if current_hw_type in available_by_category else "Personalizado"
+                    default_index = type_options.index(default_hw) if default_hw in type_options else 0
+                    selected_hw = st.selectbox("Tipo", type_options, index=default_index, key=f"hw_type_{idx}")
 
                     is_custom_hardware = selected_hw == "Personalizado"
                     if is_custom_hardware:
                         hardware['type'] = st.text_input("Nombre personalizado", current_hw_type, key=f"hw_custom_{idx}")
                     else:
                         hardware['type'] = selected_hw
-                        if selected_hw in hardware_dict:
-                            hardware['price_unit'] = hardware_dict[selected_hw].get('price_unit', 0.0)
-                
+                        hardware['price_unit'] = hardware_dict.get(selected_hw, {}).get('price_unit', 0.0)
+
                 with col2:
                     hardware['quantity'] = st.number_input("Cantidad", value=hardware.get('quantity', 1), min_value=0, key=f"hw_qty_{idx}")
-                
+
                 with col3:
                     if is_custom_hardware:
                         hardware['price_unit'] = st.number_input(
@@ -870,7 +979,7 @@ elif st.session_state.project_mode == 'edit':
                             disabled=True,
                             help="Tomado automáticamente de Referencias > Herrajes"
                         )
-                
+
                 delete_key = f"confirm_del_hw_{idx}"
                 if st.button(f"🗑️ Eliminar herraje {idx + 1}", key=f"del_hw_{idx}"):
                     st.session_state[delete_key] = True
