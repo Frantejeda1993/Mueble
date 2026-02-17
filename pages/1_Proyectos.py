@@ -551,7 +551,10 @@ elif st.session_state.project_mode == 'edit':
             })
 
         module_hardware_list, module_hardware_dict = get_hardware_catalog_by_category(firebase, allowed_categories={'Bisagra', 'Item general'})
-        module_hardware_options = [h['type'] for h in module_hardware_list]
+        module_hardware_options_by_category = {
+            'Bisagra': [h['type'] for h in module_hardware_list if h.get('category') == 'Bisagra'],
+            'Item general': [h['type'] for h in module_hardware_list if h.get('category') == 'Item general']
+        }
         slide_list, slide_dict = get_hardware_catalog_by_category(firebase, allowed_categories={'Corredera'})
         slide_options = [s['type'] for s in slide_list]
 
@@ -644,10 +647,12 @@ elif st.session_state.project_mode == 'edit':
                         mod_hw['category'] = selected_category
 
                     with hw_cols[1]:
+                        filtered_hardware_options = module_hardware_options_by_category.get(selected_category, [])
+                        hw_type_options = ["Personalizado"] + filtered_hardware_options
                         selected_hw = st.selectbox(
                             "Tipo",
-                            ["Personalizado"] + module_hardware_options,
-                            index=(["Personalizado"] + module_hardware_options).index(mod_hw.get('type', 'Personalizado')) if mod_hw.get('type', 'Personalizado') in (["Personalizado"] + module_hardware_options) else 0,
+                            hw_type_options,
+                            index=hw_type_options.index(mod_hw.get('type', 'Personalizado')) if mod_hw.get('type', 'Personalizado') in hw_type_options else 0,
                             key=f"mod_hw_type_{idx}_{hw_idx}"
                         )
                         if selected_hw == "Personalizado":
@@ -678,6 +683,8 @@ elif st.session_state.project_mode == 'edit':
                 drawers.setdefault('cantidad_cajones', 0)
                 drawers.setdefault('corredera', {'type': 'Personalizado', 'category': 'Corredera', 'price_unit': 0.0})
 
+                st.markdown("<div style='margin-top:0.5rem;padding:0.65rem 0.8rem;border:1px solid #E5E7EB;border-radius:10px;background:#FAFAFA;color:#4B5563;font-size:0.9rem;'>🧩 Configuración de cajones del módulo</div>", unsafe_allow_html=True)
+
                 add_drawer_col, clear_drawer_col = st.columns([1, 1])
                 with add_drawer_col:
                     if st.button("➕ Agregar cajón", key=f"mod_draw_add_{idx}", use_container_width=True):
@@ -695,6 +702,13 @@ elif st.session_state.project_mode == 'edit':
                 drawers['enabled'] = int(drawers.get('cantidad_cajones', 0)) > 0
 
                 if drawers['enabled']:
+                    drawers['tipo'] = st.selectbox(
+                        "Tipo de cajón",
+                        ["Magic", "Completo"],
+                        index=0 if drawers.get('tipo', 'Magic') == 'Magic' else 1,
+                        key=f"mod_draw_type_{idx}"
+                    )
+
                     drawer_material = drawers.get('material', module.get('material', ''))
                     if material_options:
                         default_draw_material_idx = material_options.index(drawer_material) if drawer_material in material_options else 0
@@ -757,8 +771,6 @@ elif st.session_state.project_mode == 'edit':
                         drawers['ancho_mm'] = st.number_input("Ancho cajón (mm)", value=int(drawers.get('ancho_mm', module.get('ancho_mm', 1000))), min_value=1, key=f"mod_draw_width_{idx}")
                     with dim_col3:
                         drawers['profundo_mm'] = st.number_input("Profundo cajón (mm)", value=int(drawers.get('profundo_mm', module.get('profundo_mm', 400))), min_value=1, key=f"mod_draw_depth_{idx}")
-
-                    drawers['tipo'] = st.selectbox("Tipo de cajón", ["Magic", "Completo"], index=0 if drawers.get('tipo', 'Magic') == 'Magic' else 1, key=f"mod_draw_type_{idx}")
                 actions_col1, actions_col2 = st.columns(2)
                 with actions_col1:
                     if st.button(f"📄 Copiar módulo {idx + 1}", key=f"copy_mod_{idx}", use_container_width=True):
