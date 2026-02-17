@@ -207,6 +207,8 @@ def format_dimensions(ancho_mm, alto_mm=None, profundo_mm=None):
     """Formatea dimensiones de forma consistente para todas las vistas."""
     if alto_mm is not None and profundo_mm is not None:
         return f"A {int(ancho_mm)} × H {int(alto_mm)} × P {int(profundo_mm)} mm"
+    if alto_mm is not None:
+        return f"A {int(ancho_mm)} × H {int(alto_mm)} mm"
     if profundo_mm is not None:
         return f"A {int(ancho_mm)} × P {int(profundo_mm)} mm"
     return f"A {int(ancho_mm)} mm"
@@ -955,7 +957,7 @@ elif st.session_state.project_mode == 'edit':
                     wood['ancho_mm'] = st.number_input("Ancho (mm)", value=wood.get('ancho_mm', 500), key=f"wood_ancho_{idx}")
                 
                 with col2:
-                    wood['profundo_mm'] = st.number_input("Profundidad (mm)", value=wood.get('profundo_mm', 200), key=f"wood_prof_{idx}")
+                    wood['profundo_mm'] = st.number_input("Alto (mm)", value=wood.get('profundo_mm', 200), key=f"wood_prof_{idx}")
                     wood['cantidad'] = st.number_input("Cantidad", value=wood.get('cantidad', 1), min_value=1, key=f"wood_cant_{idx}")
                 
                 if material_options:
@@ -1303,7 +1305,7 @@ elif st.session_state.project_mode == 'edit':
 
             for piece in woods_grouped:
                 ancho = piece.get('ancho_mm', 500)
-                profundo = piece.get('profundo_mm', 200)
+                alto = piece.get('profundo_mm', 200)
                 nombre = piece.get('nombre', 'Madera')
                 qty = piece.get('cantidad', 1)
 
@@ -1323,7 +1325,7 @@ elif st.session_state.project_mode == 'edit':
                 top_y = (qty - 1) * stack_gap + wood_height
                 ax.text(x_cursor + ancho / 2, top_y + 22, nombre, ha='center', va='bottom', fontsize=8.5, fontweight='bold')
                 suffix = f" (x{qty})" if qty > 1 else ''
-                ax.text(x_cursor + ancho / 2, -24, f"{format_dimensions(ancho, profundo_mm=profundo)}{suffix}", ha='center', va='top', fontsize=7.5)
+                ax.text(x_cursor + ancho / 2, -24, f"{format_dimensions(ancho, alto_mm=alto)}{suffix}", ha='center', va='top', fontsize=7.5)
                 x_cursor += ancho + max(120, ancho * 0.16)
 
             ax.set_xlim(-40, x_cursor)
