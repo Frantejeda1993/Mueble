@@ -193,6 +193,19 @@ def build_hardware_summary_rows(project):
     rows.sort(key=lambda row: row['Tipo'])
     return rows
 
+
+
+def get_economy_movements_safe(firebase_service):
+    if hasattr(firebase_service, 'get_economy_movements'):
+        return firebase_service.get_economy_movements()
+    rows = []
+    docs = firebase_service.db.collection('economia_movimientos').stream(timeout=20.0)
+    for doc in docs:
+        data = doc.to_dict()
+        data['id'] = doc.id
+        rows.append(data)
+    return sorted(rows, key=lambda x: x.get('fecha') or datetime.min, reverse=True)
+
 def save_project_data(firebase_service, project_id, project_name, project_client, project_date, project_status, project_data):
     """Guarda los datos actuales del proyecto"""
     payload = {
@@ -1340,7 +1353,7 @@ elif st.session_state.project_mode == 'edit':
     with tabs[5]:
         st.subheader("📈 Resultado del Proyecto")
         try:
-            movements = firebase.get_economy_movements()
+            movements = get_economy_movements_safe(firebase)
             kpis = CalculationService.calculate_project_result_kpis(project, movements)
 
             c1, c2, c3, c4 = st.columns(4)

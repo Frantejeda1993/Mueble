@@ -18,6 +18,40 @@ def get_firebase():
 firebase = get_firebase()
 st.session_state.active_nav_page = 'references'
 
+
+def get_all_employees_safe(firebase):
+    if hasattr(firebase, 'get_all_employees'):
+        return firebase.get_all_employees()
+    rows = []
+    docs = firebase.db.collection('referencias').document('empleados').collection('items').stream(timeout=15.0)
+    for doc in docs:
+        data = doc.to_dict()
+        data['id'] = doc.id
+        rows.append(data)
+    return rows
+
+
+def create_employee_safe(firebase, payload):
+    if hasattr(firebase, 'create_employee'):
+        return firebase.create_employee(payload)
+    ref = firebase.db.collection('referencias').document('empleados').collection('items').document()
+    ref.set(payload, timeout=15.0)
+    return ref.id
+
+
+def update_employee_safe(firebase, employee_id, payload):
+    if hasattr(firebase, 'update_employee'):
+        firebase.update_employee(employee_id, payload)
+        return
+    firebase.db.collection('referencias').document('empleados').collection('items').document(employee_id).update(payload, timeout=15.0)
+
+
+def delete_employee_safe(firebase, employee_id):
+    if hasattr(firebase, 'delete_employee'):
+        firebase.delete_employee(employee_id)
+        return
+    firebase.db.collection('referencias').document('empleados').collection('items').document(employee_id).delete(timeout=10.0)
+
 st.title("📚 Referencias y Configuración")
 
 components.html(
@@ -303,7 +337,7 @@ with tabs[2]:
 
     if st.button("➕ Agregar Empleado"):
         try:
-            firebase.create_employee({
+            create_employee_safe(firebase, {
                 'nombre': 'Nuevo empleado',
                 'tipo_puesto': 'Temporal',
             })
@@ -313,7 +347,7 @@ with tabs[2]:
             st.error(f"Error: {str(e)}")
 
     try:
-        employees = firebase.get_all_employees()
+        employees = get_all_employees_safe(firebase)
         if not employees:
             st.info("No hay empleados registrados.")
         else:
@@ -338,7 +372,7 @@ with tabs[2]:
                     with col_save:
                         if st.button("💾 Guardar", key=f"save_emp_{employee['id']}", use_container_width=True):
                             try:
-                                firebase.update_employee(employee['id'], {
+                                update_employee_safe(firebase, employee['id'], {
                                     'nombre': employee['nombre'],
                                     'tipo_puesto': employee['tipo_puesto'],
                                 })
@@ -354,7 +388,7 @@ with tabs[2]:
                             c1, c2 = st.columns(2)
                             with c1:
                                 if st.button("Confirmar", key=f"ok_del_emp_{employee['id']}"):
-                                    firebase.delete_employee(employee['id'])
+                                    delete_employee_safe(firebase, employee['id'])
                                     st.session_state[confirm_key] = False
                                     st.success("Empleado eliminado")
                                     st.rerun()
