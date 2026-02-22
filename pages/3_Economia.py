@@ -119,9 +119,14 @@ def render_new_movement_dialog():
     fecha = st.date_input("Fecha", value=date.today())
     origen_categoria = st.selectbox("Origen", ["Cliente", "Empleado", "Inversión", "Mantenimiento"])
 
-    selected_client = None
-    selected_employee = None
-    split_distribution = []
+        tipo = st.selectbox("Tipo", ["Ingreso", "Egreso", "Pendiente de pago"])
+        referencia = st.text_input("Referencia")
+        monto = st.number_input("Monto", min_value=0.0, value=0.0, step=10.0)
+
+        if st.form_submit_button("Guardar movimiento", type="primary"):
+            if monto <= 0:
+                st.error("El monto debe ser mayor a 0.")
+                return
 
     if origen_categoria == "Cliente":
         selected_client = st.selectbox("Cliente", options=clients) if clients else None
