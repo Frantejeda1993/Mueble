@@ -1384,27 +1384,25 @@ elif st.session_state.project_mode == 'edit':
             st.markdown("---")
             st.markdown("### 👷 Participación de empleados")
 
-            all_employees = get_all_employees_safe(firebase)
-            permanent_employees = sorted(
-                [emp for emp in all_employees if (emp.get('tipo_puesto') or '').strip().lower() == 'permanente'],
+            all_employees = sorted(
+                [emp for emp in get_all_employees_safe(firebase) if (emp.get('nombre') or '').strip()],
                 key=lambda x: (x.get('nombre') or '').lower()
             )
 
-            existing_participation = project.get('employee_participation', [])
-            existing_by_name = {
-                (row.get('employee_name') or '').strip(): float(row.get('percentage', 0.0) or 0.0)
-                for row in existing_participation
-                if row.get('employee_name')
-            }
+            @st.dialog("Asignar participación de empleados")
+            def render_participation_dialog():
+                existing_participation = project.get('employee_participation', [])
+                existing_by_name = {
+                    (row.get('employee_name') or '').strip(): float(row.get('percentage', 0.0) or 0.0)
+                    for row in existing_participation
+                    if row.get('employee_name')
+                }
 
-            with st.form(f"employee_participation_{project.get('id', 'new')}"):
-                st.caption("Asigna porcentaje de participación para cada empleado permanente.")
+                st.caption("Asigna porcentaje de participación para cada empleado.")
                 participation_rows = []
                 cols = st.columns(2)
-                for idx, emp in enumerate(permanent_employees):
+                for idx, emp in enumerate(all_employees):
                     employee_name = (emp.get('nombre') or '').strip()
-                    if not employee_name:
-                        continue
                     default_pct = existing_by_name.get(employee_name, 0.0)
                     with cols[idx % 2]:
                         pct_value = st.number_input(
@@ -1417,7 +1415,7 @@ elif st.session_state.project_mode == 'edit':
                         )
                     participation_rows.append({'employee_name': employee_name, 'percentage': pct_value})
 
-                if st.form_submit_button("💾 Guardar participación"):
+                if st.button("💾 Guardar participación", type="primary"):
                     payload_rows = [
                         {'employee_name': row['employee_name'], 'percentage': float(row['percentage'])}
                         for row in participation_rows
@@ -1428,6 +1426,9 @@ elif st.session_state.project_mode == 'edit':
                         firebase.update_project(project['id'], {'employee_participation': payload_rows})
                     st.success("Participación actualizada")
                     st.rerun()
+
+            if st.button("✏️ Configurar participación", key=f"open_participation_{project.get('id', 'new')}"):
+                render_participation_dialog()
 
             participation_saved = project.get('employee_participation', [])
             if participation_saved:

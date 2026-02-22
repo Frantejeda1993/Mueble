@@ -116,40 +116,8 @@ permanent_employees = sorted(
 
 @st.dialog("Agregar nuevo movimiento")
 def render_new_movement_dialog():
-    with st.form("economy_new_movement"):
-        fecha = st.date_input("Fecha", value=date.today())
-        origen_categoria = st.selectbox("Origen", ["Cliente", "Empleado", "Inversión", "Mantenimiento"])
-
-        selected_client = None
-        selected_employee = None
-        split_distribution = []
-
-        if origen_categoria == "Cliente":
-            selected_client = st.selectbox("Cliente", options=clients) if clients else None
-            client_projects = project_by_client.get(selected_client, []) if selected_client else []
-            for idx, project in enumerate(client_projects):
-                default = 100 if idx == len(client_projects) - 1 else 0
-                percent = st.number_input(
-                    f"% para {project.get('name', f'Proyecto {idx+1}')}",
-                    min_value=0,
-                    max_value=100,
-                    value=default,
-                    key=f"split_client_{project.get('id', idx)}"
-                )
-                split_distribution.append({'project_id': project.get('id'), 'project_name': project.get('name'), 'percent': percent})
-
-        if origen_categoria == "Empleado":
-            employee_names = [emp.get('nombre') for emp in permanent_employees if emp.get('nombre')]
-            selected_employee = st.selectbox("Empleado", options=employee_names) if employee_names else None
-            for idx, project in enumerate(active_projects):
-                percent = st.number_input(
-                    f"% para {project.get('name', f'Proyecto {idx+1}')}",
-                    min_value=0,
-                    max_value=100,
-                    value=0,
-                    key=f"split_employee_{project.get('id', idx)}"
-                )
-                split_distribution.append({'project_id': project.get('id'), 'project_name': project.get('name'), 'percent': percent})
+    fecha = st.date_input("Fecha", value=date.today())
+    origen_categoria = st.selectbox("Origen", ["Cliente", "Empleado", "Inversión", "Mantenimiento"])
 
         tipo = st.selectbox("Tipo", ["Ingreso", "Egreso", "Pendiente de pago"])
         referencia = st.text_input("Referencia")
@@ -160,38 +128,78 @@ def render_new_movement_dialog():
                 st.error("El monto debe ser mayor a 0.")
                 return
 
-            split_rows = CalculationService.split_amount_by_percentages(monto, split_distribution) if split_distribution else []
-            batch_group_id = str(uuid.uuid4())
-            created_count = 0
-            if split_rows:
-                for split in split_rows:
-                    if float(split.get('percent', 0.0) or 0.0) <= 0:
-                        continue
-                    movement = {
-                        'fecha': datetime.combine(fecha, datetime.min.time()), 'tipo': tipo, 'referencia': referencia,
-                        'monto': split.get('amount', 0.0), 'origen_categoria': origen_categoria,
-                        'origen_nombre': selected_client if origen_categoria == 'Cliente' else selected_employee,
-                        'project_id': split.get('project_id'), 'project_name': split.get('project_name'),
-                        'split_percent': split.get('percent'), 'split_group_id': batch_group_id,
-                    }
-                    movement_id = create_economy_movement_safe(firebase, movement)
-                    log_economy_action_safe(firebase, 'crear', movement_id)
-                    created_count += 1
-            else:
-                employee_type = None
-                if origen_categoria == 'Empleado' and selected_employee:
-                    employee_type = next((emp.get('tipo_puesto') for emp in employees if emp.get('nombre') == selected_employee), None)
+    if origen_categoria == "Cliente":
+        selected_client = st.selectbox("Cliente", options=clients) if clients else None
+        client_projects = project_by_client.get(selected_client, []) if selected_client else []
+        for idx, project in enumerate(client_projects):
+            default = 100 if idx == len(client_projects) - 1 else 0
+            percent = st.number_input(
+                f"% para {project.get('name', f'Proyecto {idx+1}')}",
+                min_value=0,
+                max_value=100,
+                value=default,
+                key=f"split_client_{project.get('id', idx)}"
+            )
+            split_distribution.append({'project_id': project.get('id'), 'project_name': project.get('name'), 'percent': percent})
+
+    if origen_categoria == "Empleado":
+        employee_names = [emp.get('nombre') for emp in permanent_employees if emp.get('nombre')]
+        selected_employee = st.selectbox("Empleado", options=employee_names) if employee_names else None
+        for idx, project in enumerate(active_projects):
+            percent = st.number_input(
+                f"% para {project.get('name', f'Proyecto {idx+1}')}",
+                min_value=0,
+                max_value=100,
+                value=0,
+                key=f"split_employee_{project.get('id', idx)}"
+            )
+            split_distribution.append({'project_id': project.get('id'), 'project_name': project.get('name'), 'percent': percent})
+
+    tipo = st.selectbox("Tipo", ["Ingreso", "Egreso", "Pendiente de pago"])
+    referencia = st.text_input("Referencia")
+    monto = st.number_input("Monto", min_value=0.0, value=0.0, step=10.0)
+
+    if st.button("Guardar movimiento", type="primary"):
+        if monto <= 0:
+            st.error("El monto debe ser mayor a 0.")
+            return
+
+        split_rows = CalculationService.split_amount_by_percentages(monto, split_distribution) if split_distribution else []
+        batch_group_id = str(uuid.uuid4())
+        created_count = 0
+        if split_rows:
+            for split in split_rows:
+                if float(split.get('percent', 0.0) or 0.0) <= 0:
+                    continue
                 movement = {
                     'fecha': datetime.combine(fecha, datetime.min.time()), 'tipo': tipo, 'referencia': referencia,
-                    'monto': monto, 'origen_categoria': origen_categoria,
-                    'origen_nombre': selected_employee if origen_categoria == 'Empleado' else origen_categoria,
-                    'empleado_tipo': employee_type, 'split_group_id': batch_group_id,
+                    'monto': split.get('amount', 0.0), 'origen_categoria': origen_categoria,
+                    'origen_nombre': selected_client if origen_categoria == 'Cliente' else selected_employee,
+                    'project_id': split.get('project_id'), 'project_name': split.get('project_name'),
+                    'split_percent': split.get('percent'), 'split_group_id': batch_group_id,
                 }
                 movement_id = create_economy_movement_safe(firebase, movement)
                 log_economy_action_safe(firebase, 'crear', movement_id)
-                created_count = 1
-            st.success(f"Movimientos creados: {created_count}")
-            st.rerun()
+                created_count += 1
+        else:
+            employee_type = None
+            if origen_categoria == 'Empleado' and selected_employee:
+                employee_type = next((emp.get('tipo_puesto') for emp in employees if emp.get('nombre') == selected_employee), None)
+            movement = {
+                'fecha': datetime.combine(fecha, datetime.min.time()), 'tipo': tipo, 'referencia': referencia,
+                'monto': monto, 'origen_categoria': origen_categoria,
+                'origen_nombre': selected_employee if origen_categoria == 'Empleado' else origen_categoria,
+                'empleado_tipo': employee_type, 'split_group_id': batch_group_id,
+            }
+            movement_id = create_economy_movement_safe(firebase, movement)
+            log_economy_action_safe(firebase, 'crear', movement_id)
+            created_count = 1
+        st.success(f"Movimientos creados: {created_count}")
+        st.rerun()
+
+
+if st.button("➕ Agregar nuevo movimiento", type="primary"):
+    render_new_movement_dialog()
 
 
 if st.button("➕ Agregar nuevo movimiento", type="primary"):
