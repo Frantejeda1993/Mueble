@@ -206,6 +206,18 @@ def get_economy_movements_safe(firebase_service):
         rows.append(data)
     return sorted(rows, key=lambda x: x.get('fecha') or datetime.min, reverse=True)
 
+
+def get_all_employees_safe(firebase_service):
+    if hasattr(firebase_service, 'get_all_employees'):
+        return firebase_service.get_all_employees()
+    rows = []
+    docs = firebase_service.db.collection('referencias').document('empleados').collection('items').stream(timeout=15.0)
+    for doc in docs:
+        data = doc.to_dict()
+        data['id'] = doc.id
+        rows.append(data)
+    return rows
+
 def save_project_data(firebase_service, project_id, project_name, project_client, project_date, project_status, project_data):
     """Guarda los datos actuales del proyecto"""
     payload = {
@@ -1368,6 +1380,90 @@ elif st.session_state.project_mode == 'edit':
                 c4.markdown(f"<div style='padding:1rem;border-radius:10px;background:#e7f7ed;color:#146c2e;text-align:center'><b>% Real del Presupuesto</b><br><span style='font-size:1.6rem'>{pct:.1f}%</span></div>", unsafe_allow_html=True)
 
             st.caption("Fórmula: (Gastos reales / (Materiales + Corte y canto + Herrajes y extras)) * 100")
+
+            st.markdown("---")
+            st.markdown("### 👷 Participación de empleados")
+
+            all_employees = sorted(
+                [emp for emp in get_all_employees_safe(firebase) if (emp.get('nombre') or '').strip()],
+                key=lambda x: (x.get('nombre') or '').lower()
+            )
+
+            @st.dialog("Asignar participación de empleados")
+            def render_participation_dialog():
+                existing_participation = project.get('employee_participation', [])
+                existing_by_name = {
+                    (row.get('employee_name') or '').strip(): float(row.get('percentage', 0.0) or 0.0)
+                    for row in existing_participation
+                    if row.get('employee_name')
+                }
+
+                st.caption("Asigna porcentaje de participación para cada empleado.")
+                participation_rows = []
+                cols = st.columns(2)
+                for idx, emp in enumerate(all_employees):
+                    employee_name = (emp.get('nombre') or '').strip()
+                    default_pct = existing_by_name.get(employee_name, 0.0)
+                    with cols[idx % 2]:
+                        pct_value = st.number_input(
+                            f"{employee_name} (%)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(default_pct),
+                            step=5.0,
+                            key=f"employee_pct_{project.get('id', 'new')}_{idx}"
+                        )
+                    participation_rows.append({'employee_name': employee_name, 'percentage': pct_value})
+
+                if st.button("💾 Guardar participación", type="primary"):
+                    payload_rows = [
+                        {'employee_name': row['employee_name'], 'percentage': float(row['percentage'])}
+                        for row in participation_rows
+                        if float(row.get('percentage', 0.0) or 0.0) > 0
+                    ]
+                    project['employee_participation'] = payload_rows
+                    if project.get('id'):
+                        firebase.update_project(project['id'], {'employee_participation': payload_rows})
+                    st.success("Participación actualizada")
+                    st.rerun()
+
+            if st.button("✏️ Configurar participación", key=f"open_participation_{project.get('id', 'new')}"):
+                render_participation_dialog()
+
+            participation_saved = project.get('employee_participation', [])
+            if participation_saved:
+                project_name_normalized = (project.get('name') or '').strip().lower()
+                rows = []
+                for row in participation_saved:
+                    employee_name = (row.get('employee_name') or '').strip()
+                    pct_participation = float(row.get('percentage', 0.0) or 0.0)
+                    gastos_employee = 0.0
+                    for mov in movements:
+                        mov_project = (mov.get('project_name') or '').strip().lower()
+                        if mov_project != project_name_normalized:
+                            continue
+                        if mov.get('tipo') != 'Egreso':
+                            continue
+                        if (mov.get('origen_categoria') or '').strip().lower() != 'empleado':
+                            continue
+                        if (mov.get('origen_nombre') or '').strip().lower() != employee_name.lower():
+                            continue
+                        gastos_employee += float(mov.get('monto', 0.0) or 0.0)
+
+                    ganancia_total = kpis['ganancia_real'] * (pct_participation / 100.0)
+                    ganancia_final = kpis['ganancia_real'] - gastos_employee
+                    rows.append({
+                        'Empleado': employee_name,
+                        '% Participación': round(pct_participation, 2),
+                        'Gastos': round(gastos_employee, 2),
+                        'Ganancia total': round(ganancia_total, 2),
+                        'Ganancia final': round(ganancia_final, 2),
+                    })
+
+                st.dataframe(rows, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay participación asignada todavía.")
+
         except Exception as e:
             st.error(f"No fue posible calcular resultado: {str(e)}")
 
