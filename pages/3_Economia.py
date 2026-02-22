@@ -201,10 +201,6 @@ def render_new_movement_dialog():
 if st.button("➕ Agregar nuevo movimiento", type="primary"):
     render_new_movement_dialog()
 
-
-if st.button("➕ Agregar nuevo movimiento", type="primary"):
-    render_new_movement_dialog()
-
 st.markdown("---")
 st.subheader("📋 Lista de movimientos")
 

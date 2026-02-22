@@ -1388,16 +1388,14 @@ elif st.session_state.project_mode == 'edit':
                 [emp for emp in get_all_employees_safe(firebase) if (emp.get('nombre') or '').strip()],
                 key=lambda x: (x.get('nombre') or '').lower()
             )
+            existing_participation = project.get('employee_participation', [])
+            existing_by_name = {
+                (row.get('employee_name') or '').strip(): float(row.get('percentage', 0.0) or 0.0)
+                for row in existing_participation
+                if row.get('employee_name')
+            }
 
-            @st.dialog("Asignar participación de empleados")
-            def render_participation_dialog():
-                existing_participation = project.get('employee_participation', [])
-                existing_by_name = {
-                    (row.get('employee_name') or '').strip(): float(row.get('percentage', 0.0) or 0.0)
-                    for row in existing_participation
-                    if row.get('employee_name')
-                }
-
+            with st.popover("✏️ Configurar participación", use_container_width=False):
                 st.caption("Asigna porcentaje de participación para cada empleado.")
                 participation_rows = []
                 cols = st.columns(2)
@@ -1415,7 +1413,7 @@ elif st.session_state.project_mode == 'edit':
                         )
                     participation_rows.append({'employee_name': employee_name, 'percentage': pct_value})
 
-                if st.button("💾 Guardar participación", type="primary"):
+                if st.button("💾 Guardar participación", type="primary", key=f"save_participation_{project.get('id', 'new')}"):
                     payload_rows = [
                         {'employee_name': row['employee_name'], 'percentage': float(row['percentage'])}
                         for row in participation_rows
@@ -1426,9 +1424,6 @@ elif st.session_state.project_mode == 'edit':
                         firebase.update_project(project['id'], {'employee_participation': payload_rows})
                     st.success("Participación actualizada")
                     st.rerun()
-
-            if st.button("✏️ Configurar participación", key=f"open_participation_{project.get('id', 'new')}"):
-                render_participation_dialog()
 
             participation_saved = project.get('employee_participation', [])
             if participation_saved:
