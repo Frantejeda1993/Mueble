@@ -36,12 +36,13 @@ st.markdown("""
 En esta sección puedes configurar:
 - **Materiales**: Tipos de madera, colores, precios
 - **Herrajes**: Bisagras, correderas e ítems generales
+- **Empleados**: Referencias para movimientos económicos
 - **Servicio de Corte**: Precio y desperdicio
 - **Logo**: Logo para los PDFs
 """)
 
 # Tabs
-tabs = st.tabs(["🪵 Materiales", "🔩 Herrajes", "✂️ Servicio de Corte", "🖼️ Logo"])
+tabs = st.tabs(["🪵 Materiales", "🔩 Herrajes", "👷 Empleados", "✂️ Servicio de Corte", "🖼️ Logo"])
 
 # ========== TAB: MATERIALES ==========
 with tabs[0]:
@@ -298,6 +299,74 @@ with tabs[1]:
 
 # ========== TAB: SERVICIO DE CORTE ==========
 with tabs[2]:
+    st.subheader("Empleados")
+
+    if st.button("➕ Agregar Empleado"):
+        try:
+            firebase.create_employee({
+                'nombre': 'Nuevo empleado',
+                'tipo_puesto': 'Temporal',
+            })
+            st.success("Empleado agregado")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+    try:
+        employees = firebase.get_all_employees()
+        if not employees:
+            st.info("No hay empleados registrados.")
+        else:
+            for employee in employees:
+                with st.expander(f"{employee.get('nombre', '')} ({employee.get('tipo_puesto', 'Temporal')})"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        employee['nombre'] = st.text_input(
+                            "Nombre",
+                            value=employee.get('nombre', ''),
+                            key=f"emp_name_{employee['id']}"
+                        )
+                    with col2:
+                        employee['tipo_puesto'] = st.selectbox(
+                            "Tipo de puesto",
+                            options=['Temporal', 'Permanente'],
+                            index=0 if employee.get('tipo_puesto', 'Temporal') == 'Temporal' else 1,
+                            key=f"emp_type_{employee['id']}"
+                        )
+
+                    col_save, col_delete = st.columns([3, 1])
+                    with col_save:
+                        if st.button("💾 Guardar", key=f"save_emp_{employee['id']}", use_container_width=True):
+                            try:
+                                firebase.update_employee(employee['id'], {
+                                    'nombre': employee['nombre'],
+                                    'tipo_puesto': employee['tipo_puesto'],
+                                })
+                                st.success("✅ Empleado actualizado")
+                            except Exception as e:
+                                st.error(f"Error: {str(e)}")
+                    with col_delete:
+                        confirm_key = f"confirm_delete_emp_{employee['id']}"
+                        if st.button("🗑️", key=f"del_emp_{employee['id']}", use_container_width=True):
+                            st.session_state[confirm_key] = True
+                        if st.session_state.get(confirm_key):
+                            st.warning("¿Eliminar este empleado?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirmar", key=f"ok_del_emp_{employee['id']}"):
+                                    firebase.delete_employee(employee['id'])
+                                    st.session_state[confirm_key] = False
+                                    st.success("Empleado eliminado")
+                                    st.rerun()
+                            with c2:
+                                if st.button("Cancelar", key=f"cancel_del_emp_{employee['id']}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+    except Exception as e:
+        st.error(f"Error cargando empleados: {str(e)}")
+
+# ========== TAB: SERVICIO DE CORTE ==========
+with tabs[3]:
     st.subheader("Configuración del Servicio de Corte")
     
     try:
@@ -354,7 +423,7 @@ with tabs[2]:
         st.error(f"Error cargando configuración: {str(e)}")
 
 # ========== TAB: LOGO ==========
-with tabs[3]:
+with tabs[4]:
     st.subheader("Logo para PDFs")
     
     st.markdown("""
