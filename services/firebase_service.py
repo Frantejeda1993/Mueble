@@ -296,3 +296,111 @@ class FirebaseService:
             return None
         except Exception as e:
             return None
+
+    # ========== REFERENCIAS: EMPLEADOS ==========
+
+    def _employees_collection(self):
+        """Colección de empleados en referencias/empleados/items."""
+        return self.db.collection('referencias').document('empleados').collection('items')
+
+    def get_all_employees(self) -> List[Dict]:
+        """Obtiene todos los empleados."""
+        try:
+            employees = []
+            docs = self._employees_collection().stream(timeout=15.0)
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                employees.append(data)
+            return employees
+        except Exception as e:
+            raise Exception(f"Error obteniendo empleados: {str(e)}")
+
+    def create_employee(self, employee_data: Dict) -> str:
+        """Crea un nuevo empleado."""
+        try:
+            doc_ref = self._employees_collection().document()
+            payload = {**employee_data, 'created_at': datetime.now()}
+            doc_ref.set(payload, timeout=15.0)
+            return doc_ref.id
+        except Exception as e:
+            raise Exception(f"Error creando empleado: {str(e)}")
+
+    def update_employee(self, employee_id: str, employee_data: Dict):
+        """Actualiza un empleado."""
+        try:
+            payload = {**employee_data, 'updated_at': datetime.now()}
+            self._employees_collection().document(employee_id).update(payload, timeout=15.0)
+        except Exception as e:
+            raise Exception(f"Error actualizando empleado: {str(e)}")
+
+    def delete_employee(self, employee_id: str):
+        """Elimina un empleado."""
+        try:
+            self._employees_collection().document(employee_id).delete(timeout=10.0)
+        except Exception as e:
+            raise Exception(f"Error eliminando empleado: {str(e)}")
+
+    # ========== ECONOMÍA ==========
+
+    def get_economy_movements(self) -> List[Dict]:
+        """Obtiene movimientos económicos ordenados por fecha desc."""
+        try:
+            movements = []
+            docs = self.db.collection('economia_movimientos').order_by('fecha', direction=firestore.Query.DESCENDING).stream(timeout=20.0)
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                movements.append(data)
+            return movements
+        except Exception:
+            try:
+                movements = []
+                docs = self.db.collection('economia_movimientos').stream(timeout=20.0)
+                for doc in docs:
+                    data = doc.to_dict()
+                    data['id'] = doc.id
+                    movements.append(data)
+                return sorted(movements, key=lambda x: x.get('fecha') or datetime.min, reverse=True)
+            except Exception as e:
+                raise Exception(f"Error obteniendo movimientos económicos: {str(e)}")
+
+    def create_economy_movement(self, movement_data: Dict) -> str:
+        """Crea un movimiento económico."""
+        try:
+            doc_ref = self.db.collection('economia_movimientos').document()
+            payload = {**movement_data, 'created_at': datetime.now()}
+            doc_ref.set(payload, timeout=20.0)
+            return doc_ref.id
+        except Exception as e:
+            raise Exception(f"Error creando movimiento económico: {str(e)}")
+
+    def update_economy_movement(self, movement_id: str, movement_data: Dict):
+        """Actualiza un movimiento económico."""
+        try:
+            payload = {**movement_data, 'updated_at': datetime.now()}
+            self.db.collection('economia_movimientos').document(movement_id).update(payload, timeout=20.0)
+        except Exception as e:
+            raise Exception(f"Error actualizando movimiento económico: {str(e)}")
+
+    def delete_economy_movement(self, movement_id: str):
+        """Elimina un movimiento económico."""
+        try:
+            self.db.collection('economia_movimientos').document(movement_id).delete(timeout=15.0)
+        except Exception as e:
+            raise Exception(f"Error eliminando movimiento económico: {str(e)}")
+
+    def log_economy_action(self, action: str, movement_id: str, snapshot_before: Optional[Dict] = None, user: Optional[str] = None):
+        """Registra eventos create/update/delete de economía."""
+        try:
+            payload = {
+                'timestamp': datetime.now(),
+                'usuario': user,
+                'accion': action,
+                'movimiento_id': movement_id,
+                'snapshot_previo': snapshot_before,
+            }
+            self.db.collection('economia_logs').document().set(payload, timeout=15.0)
+        except Exception:
+            # Logging best effort
+            pass

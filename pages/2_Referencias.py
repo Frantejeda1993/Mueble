@@ -18,6 +18,40 @@ def get_firebase():
 firebase = get_firebase()
 st.session_state.active_nav_page = 'references'
 
+
+def get_all_employees_safe(firebase):
+    if hasattr(firebase, 'get_all_employees'):
+        return firebase.get_all_employees()
+    rows = []
+    docs = firebase.db.collection('referencias').document('empleados').collection('items').stream(timeout=15.0)
+    for doc in docs:
+        data = doc.to_dict()
+        data['id'] = doc.id
+        rows.append(data)
+    return rows
+
+
+def create_employee_safe(firebase, payload):
+    if hasattr(firebase, 'create_employee'):
+        return firebase.create_employee(payload)
+    ref = firebase.db.collection('referencias').document('empleados').collection('items').document()
+    ref.set(payload, timeout=15.0)
+    return ref.id
+
+
+def update_employee_safe(firebase, employee_id, payload):
+    if hasattr(firebase, 'update_employee'):
+        firebase.update_employee(employee_id, payload)
+        return
+    firebase.db.collection('referencias').document('empleados').collection('items').document(employee_id).update(payload, timeout=15.0)
+
+
+def delete_employee_safe(firebase, employee_id):
+    if hasattr(firebase, 'delete_employee'):
+        firebase.delete_employee(employee_id)
+        return
+    firebase.db.collection('referencias').document('empleados').collection('items').document(employee_id).delete(timeout=10.0)
+
 st.title("📚 Referencias y Configuración")
 
 components.html(
@@ -36,12 +70,13 @@ st.markdown("""
 En esta sección puedes configurar:
 - **Materiales**: Tipos de madera, colores, precios
 - **Herrajes**: Bisagras, correderas e ítems generales
+- **Empleados**: Referencias para movimientos económicos
 - **Servicio de Corte**: Precio y desperdicio
 - **Logo**: Logo para los PDFs
 """)
 
 # Tabs
-tabs = st.tabs(["🪵 Materiales", "🔩 Herrajes", "✂️ Servicio de Corte", "🖼️ Logo"])
+tabs = st.tabs(["🪵 Materiales", "🔩 Herrajes", "👷 Empleados", "✂️ Servicio de Corte", "🖼️ Logo"])
 
 # ========== TAB: MATERIALES ==========
 with tabs[0]:
@@ -298,6 +333,74 @@ with tabs[1]:
 
 # ========== TAB: SERVICIO DE CORTE ==========
 with tabs[2]:
+    st.subheader("Empleados")
+
+    if st.button("➕ Agregar Empleado"):
+        try:
+            create_employee_safe(firebase, {
+                'nombre': 'Nuevo empleado',
+                'tipo_puesto': 'Temporal',
+            })
+            st.success("Empleado agregado")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+    try:
+        employees = get_all_employees_safe(firebase)
+        if not employees:
+            st.info("No hay empleados registrados.")
+        else:
+            for employee in employees:
+                with st.expander(f"{employee.get('nombre', '')} ({employee.get('tipo_puesto', 'Temporal')})"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        employee['nombre'] = st.text_input(
+                            "Nombre",
+                            value=employee.get('nombre', ''),
+                            key=f"emp_name_{employee['id']}"
+                        )
+                    with col2:
+                        employee['tipo_puesto'] = st.selectbox(
+                            "Tipo de puesto",
+                            options=['Temporal', 'Permanente'],
+                            index=0 if employee.get('tipo_puesto', 'Temporal') == 'Temporal' else 1,
+                            key=f"emp_type_{employee['id']}"
+                        )
+
+                    col_save, col_delete = st.columns([3, 1])
+                    with col_save:
+                        if st.button("💾 Guardar", key=f"save_emp_{employee['id']}", use_container_width=True):
+                            try:
+                                update_employee_safe(firebase, employee['id'], {
+                                    'nombre': employee['nombre'],
+                                    'tipo_puesto': employee['tipo_puesto'],
+                                })
+                                st.success("✅ Empleado actualizado")
+                            except Exception as e:
+                                st.error(f"Error: {str(e)}")
+                    with col_delete:
+                        confirm_key = f"confirm_delete_emp_{employee['id']}"
+                        if st.button("🗑️", key=f"del_emp_{employee['id']}", use_container_width=True):
+                            st.session_state[confirm_key] = True
+                        if st.session_state.get(confirm_key):
+                            st.warning("¿Eliminar este empleado?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirmar", key=f"ok_del_emp_{employee['id']}"):
+                                    delete_employee_safe(firebase, employee['id'])
+                                    st.session_state[confirm_key] = False
+                                    st.success("Empleado eliminado")
+                                    st.rerun()
+                            with c2:
+                                if st.button("Cancelar", key=f"cancel_del_emp_{employee['id']}"):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+    except Exception as e:
+        st.error(f"Error cargando empleados: {str(e)}")
+
+# ========== TAB: SERVICIO DE CORTE ==========
+with tabs[3]:
     st.subheader("Configuración del Servicio de Corte")
     
     try:
@@ -354,7 +457,7 @@ with tabs[2]:
         st.error(f"Error cargando configuración: {str(e)}")
 
 # ========== TAB: LOGO ==========
-with tabs[3]:
+with tabs[4]:
     st.subheader("Logo para PDFs")
     
     st.markdown("""
