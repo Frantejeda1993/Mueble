@@ -86,10 +86,9 @@ employees = get_all_employees_safe(firebase)
 movements = get_economy_movements_safe(firebase)
 
 balances = CalculationService.compute_economy_balances(movements)
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 col1.metric("Balance Taller", f"{balances['balance_taller']:.2f} €")
-col2.metric("Balance Empleados Permanentes", f"{balances['balance_empleados_permanentes']:.2f} €")
-col3.metric("Fondos Reales", f"{balances['fondos_reales']:.2f} €")
+col2.metric("Fondos Reales", f"{balances['fondos_reales']:.2f} €")
 
 st.markdown("---")
 st.subheader("➕ Movimientos")
@@ -112,6 +111,36 @@ permanent_employees = sorted(
     [emp for emp in employees if (emp.get('tipo_puesto') or '').strip().lower() == 'permanente'],
     key=lambda x: (x.get('nombre') or '').lower()
 )
+
+
+def signed_amount_without_pending(movement):
+    movement_type = movement.get('tipo', '')
+    amount = float(movement.get('monto', 0.0) or 0.0)
+    if movement_type == 'Pendiente de pago':
+        return 0.0
+    if movement_type == 'Ingreso':
+        return amount
+    return -amount
+
+
+if permanent_employees:
+    st.subheader("👥 Balance empleados permanentes")
+    permanent_employee_names = [emp.get('nombre') for emp in permanent_employees if emp.get('nombre')]
+    employee_balance_map = {
+        employee_name: sum(
+            signed_amount_without_pending(mov)
+            for mov in movements
+            if mov.get('origen_categoria') == 'Empleado' and mov.get('origen_nombre') == employee_name
+        )
+        for employee_name in permanent_employee_names
+    }
+
+    employee_cols = st.columns(min(3, len(permanent_employee_names)))
+    for idx, employee_name in enumerate(permanent_employee_names):
+        employee_cols[idx % len(employee_cols)].metric(
+            f"Balance {employee_name}",
+            f"{employee_balance_map.get(employee_name, 0.0):.2f} €"
+        )
 
 
 with st.popover("➕ Agregar nuevo movimiento", use_container_width=False):
