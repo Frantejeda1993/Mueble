@@ -97,6 +97,47 @@ def build_material_summary_rows(calculations, materials_db_list):
     return rows
 
 
+def build_material_origin_details(project, material_key):
+    """Construye detalle de origen por madera para mostrar en acordeón."""
+    rows = []
+
+    for module in project.get('modules', []):
+        if module.get('material') == material_key:
+            qty = max(1, int(module.get('cantidad_modulos', 1)))
+            m2 = CalculationService.mm_to_m2(module.get('alto_mm', 0), module.get('profundo_mm', 0)) * 2
+            m2 += CalculationService.mm_to_m2(module.get('ancho_mm', 0), module.get('profundo_mm', 0)) * 2
+            rows.append({
+                'Nombre': module.get('nombre', 'Módulo'),
+                'Tipo': 'Modulo',
+                'Medidas': f"{module.get('ancho_mm', 0)}x{module.get('alto_mm', 0)}x{module.get('profundo_mm', 0)} mm",
+                'Metros cuadrados': round(m2 * qty, 3)
+            })
+
+    for shelf in project.get('shelves', []):
+        if shelf.get('material') == material_key:
+            qty = max(1, int(shelf.get('cantidad', 1)))
+            m2 = CalculationService.mm_to_m2(shelf.get('ancho_mm', 0), shelf.get('profundo_mm', 0)) * qty
+            rows.append({
+                'Nombre': shelf.get('nombre', 'Estante'),
+                'Tipo': 'estante',
+                'Medidas': f"{shelf.get('ancho_mm', 0)}x{shelf.get('profundo_mm', 0)} mm",
+                'Metros cuadrados': round(m2, 3)
+            })
+
+    for wood in project.get('woods', []):
+        if wood.get('material') == material_key:
+            qty = max(1, int(wood.get('cantidad', 1)))
+            m2 = CalculationService.mm_to_m2(wood.get('ancho_mm', 0), wood.get('profundo_mm', 0)) * qty
+            rows.append({
+                'Nombre': wood.get('nombre', 'Madera'),
+                'Tipo': 'Maderas',
+                'Medidas': f"{wood.get('ancho_mm', 0)}x{wood.get('profundo_mm', 0)} mm",
+                'Metros cuadrados': round(m2, 3)
+            })
+
+    return rows
+
+
 def build_hardware_summary_rows(project):
     """Construye filas para resumir tipo, cantidad y precios de herrajes usados."""
     grouped = {}
@@ -636,7 +677,7 @@ elif st.session_state.project_mode == 'edit':
     st.markdown("---")
     
     # Tabs para las secciones
-    tabs = st.tabs(["📦 Módulos", "📏 Estantes", "🪵 Maderas", "🔩 Herrajes", "💰 Costos", "📊 Vista Gráfica", "📄 PDF"])
+    tabs = st.tabs(["📦 Módulos", "📏 Estantes", "🪵 Maderas", "🔩 Herrajes", "💰 Costos", "📈 Resultado", "📊 Vista Gráfica", "📄 PDF"])
     
     # TAB: MÓDULOS
     with tabs[0]:
@@ -1248,7 +1289,15 @@ elif st.session_state.project_mode == 'edit':
 
             material_summary_rows = build_material_summary_rows(calculations, materials_db_list)
             if material_summary_rows:
-                st.dataframe(material_summary_rows, use_container_width=True, hide_index=True)
+                for row in material_summary_rows:
+                    material_key = f"{row['Madera']}_{row['Color']}_{row['Espesor (mm)']}"
+                    with st.expander(f"{row['Madera']} | {row['m² utilizados']} m² | {row['Valor (€)']:.2f} €"):
+                        st.dataframe([row], use_container_width=True, hide_index=True)
+                        details = build_material_origin_details(project, material_key)
+                        if details:
+                            st.dataframe(details, use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("Sin detalle de origen para esta madera.")
             else:
                 st.info("No hay maderas asociadas al proyecto para resumir.")
 
@@ -1279,13 +1328,38 @@ elif st.session_state.project_mode == 'edit':
                 materials_db_list,
                 cutting_service
             )
+            project['materiales_total'] = material_total
+            project['corte_canto_total'] = calculations['cutting_cost']
+            project['herrajes_total'] = calculations['hardware_total']
             st.info(f"💼 Mano de obra en PDF: {calculations_live['labor_for_invoice']:.2f} € | 🏷️ Descuento: {calculations_live.get('discount_for_invoice', 0.0):.2f} €")
             
         except Exception as e:
             st.error(f"Error calculando costos: {str(e)}")
     
-    # TAB: VISTA GRÁFICA
+    # TAB: RESULTADO
     with tabs[5]:
+        st.subheader("📈 Resultado del Proyecto")
+        try:
+            movements = firebase.get_economy_movements()
+            kpis = CalculationService.calculate_project_result_kpis(project, movements)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Monto Presupuestado", f"{kpis['monto_presupuestado']:.2f} €")
+            c2.metric("Gastos Reales", f"{kpis['gastos_reales']:.2f} €")
+            c3.metric("Ganancia Real", f"{kpis['ganancia_real']:.2f} €")
+
+            pct = kpis['porcentaje_real_presupuesto']
+            if pct > 100:
+                c4.markdown(f"<div style='padding:1rem;border-radius:10px;background:#ffe5e5;color:#b00020;text-align:center'><b>% Real del Presupuesto</b><br><span style='font-size:1.6rem'>{pct:.1f}%</span></div>", unsafe_allow_html=True)
+            else:
+                c4.markdown(f"<div style='padding:1rem;border-radius:10px;background:#e7f7ed;color:#146c2e;text-align:center'><b>% Real del Presupuesto</b><br><span style='font-size:1.6rem'>{pct:.1f}%</span></div>", unsafe_allow_html=True)
+
+            st.caption("Fórmula: (Gastos reales / (Materiales + Corte y canto + Herrajes y extras)) * 100")
+        except Exception as e:
+            st.error(f"No fue posible calcular resultado: {str(e)}")
+
+    # TAB: VISTA GRÁFICA
+    with tabs[6]:
         st.subheader("📊 Vista Gráfica")
 
         # Dibujar cada módulo por separado
@@ -1435,7 +1509,7 @@ elif st.session_state.project_mode == 'edit':
             plt.close()
 
     # TAB: PDF
-    with tabs[6]:
+    with tabs[7]:
         st.subheader("📄 Generar PDF")
         
         try:

@@ -410,3 +410,77 @@ class CalculationService:
             'discount_for_invoice': discount_for_invoice,
             'total_m2_con_desperdicio': total_m2_con_desperdicio
         }
+
+    @staticmethod
+    def compute_economy_balances(movements: List[Dict]) -> Dict[str, float]:
+        """Calcula balances principales de economía."""
+        def signed_amount(movement: Dict, include_pending: bool = True) -> float:
+            tipo = movement.get('tipo', '')
+            amount = float(movement.get('monto', 0.0) or 0.0)
+            if tipo == 'Pendiente de pago' and not include_pending:
+                return 0.0
+            if tipo == 'Ingreso':
+                return amount
+            return -amount
+
+        balance_taller = sum(signed_amount(mov, include_pending=True) for mov in movements)
+        fondos_reales = sum(signed_amount(mov, include_pending=False) for mov in movements)
+        balance_permanentes = sum(
+            signed_amount(mov, include_pending=False)
+            for mov in movements
+            if mov.get('origen_categoria') == 'Empleado' and mov.get('empleado_tipo') == 'Permanente'
+        )
+        return {
+            'balance_taller': balance_taller,
+            'balance_empleados_permanentes': balance_permanentes,
+            'fondos_reales': fondos_reales,
+        }
+
+    @staticmethod
+    def split_amount_by_percentages(total_amount: float, distributions: List[Dict]) -> List[Dict]:
+        """Divide un monto por porcentajes y corrige redondeo al final."""
+        if not distributions:
+            return []
+
+        splits = []
+        running = 0.0
+        for idx, dist in enumerate(distributions):
+            pct = float(dist.get('percent', 0.0) or 0.0)
+            if idx == len(distributions) - 1:
+                amount = round(total_amount - running, 2)
+            else:
+                amount = round(total_amount * pct / 100.0, 2)
+                running += amount
+            splits.append({**dist, 'amount': amount})
+        return splits
+
+    @staticmethod
+    def calculate_project_result_kpis(project: Dict, movements: List[Dict]) -> Dict[str, float]:
+        """Calcula KPIs de la pestaña Resultado de proyectos."""
+        project_name = (project.get('name') or '').strip().lower()
+        gastos_reales = 0.0
+        for mov in movements:
+            mov_project = (mov.get('project_name') or '').strip().lower()
+            if mov_project != project_name:
+                continue
+            if mov.get('tipo') == 'Egreso':
+                gastos_reales += float(mov.get('monto', 0.0) or 0.0)
+
+        precio_final = float(project.get('final_price', 0.0) or 0.0)
+        ganancia_real = precio_final - gastos_reales
+        base = (
+            float(project.get('materiales_total', 0.0) or 0.0)
+            + float(project.get('corte_canto_total', 0.0) or 0.0)
+            + float(project.get('herrajes_total', 0.0) or 0.0)
+        )
+        if base <= 0:
+            pct_real = 0.0
+        else:
+            pct_real = (gastos_reales / base) * 100.0
+
+        return {
+            'monto_presupuestado': precio_final,
+            'gastos_reales': gastos_reales,
+            'ganancia_real': ganancia_real,
+            'porcentaje_real_presupuesto': pct_real,
+        }
