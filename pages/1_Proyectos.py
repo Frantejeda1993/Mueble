@@ -1446,7 +1446,7 @@ elif st.session_state.project_mode == 'edit':
                         gastos_employee += float(mov.get('monto', 0.0) or 0.0)
 
                     ganancia_total = kpis['ganancia_real'] * (pct_participation / 100.0)
-                    ganancia_final = kpis['ganancia_real'] - gastos_employee
+                    ganancia_final = ganancia_total - gastos_employee
                     rows.append({
                         'Empleado': employee_name,
                         '% Participación': round(pct_participation, 2),

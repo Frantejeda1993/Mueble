@@ -114,8 +114,7 @@ permanent_employees = sorted(
 )
 
 
-@st.dialog("Agregar nuevo movimiento")
-def render_new_movement_dialog():
+with st.popover("➕ Agregar nuevo movimiento", use_container_width=False):
     fecha = st.date_input("Fecha", value=date.today())
     origen_categoria = st.selectbox("Origen", ["Cliente", "Empleado", "Inversión", "Mantenimiento"])
 
@@ -159,24 +158,36 @@ def render_new_movement_dialog():
     referencia = st.text_input("Referencia")
     monto = st.number_input("Monto", min_value=0.0, value=0.0, step=10.0)
 
-    if st.button("Guardar movimiento", type="primary"):
+    if st.button("Guardar movimiento", type="primary", key="save_economy_movement"):
         if monto <= 0:
             st.error("El monto debe ser mayor a 0.")
-            return
-
-        split_rows = CalculationService.split_amount_by_percentages(monto, split_distribution) if split_distribution else []
-        batch_group_id = str(uuid.uuid4())
-        created_count = 0
-        if split_rows:
-            for split in split_rows:
-                if float(split.get('percent', 0.0) or 0.0) <= 0:
-                    continue
+        else:
+            split_rows = CalculationService.split_amount_by_percentages(monto, split_distribution) if split_distribution else []
+            batch_group_id = str(uuid.uuid4())
+            created_count = 0
+            if split_rows:
+                for split in split_rows:
+                    if float(split.get('percent', 0.0) or 0.0) <= 0:
+                        continue
+                    movement = {
+                        'fecha': datetime.combine(fecha, datetime.min.time()), 'tipo': tipo, 'referencia': referencia,
+                        'monto': split.get('amount', 0.0), 'origen_categoria': origen_categoria,
+                        'origen_nombre': selected_client if origen_categoria == 'Cliente' else selected_employee,
+                        'project_id': split.get('project_id'), 'project_name': split.get('project_name'),
+                        'split_percent': split.get('percent'), 'split_group_id': batch_group_id,
+                    }
+                    movement_id = create_economy_movement_safe(firebase, movement)
+                    log_economy_action_safe(firebase, 'crear', movement_id)
+                    created_count += 1
+            else:
+                employee_type = None
+                if origen_categoria == 'Empleado' and selected_employee:
+                    employee_type = next((emp.get('tipo_puesto') for emp in employees if emp.get('nombre') == selected_employee), None)
                 movement = {
                     'fecha': datetime.combine(fecha, datetime.min.time()), 'tipo': tipo, 'referencia': referencia,
-                    'monto': split.get('amount', 0.0), 'origen_categoria': origen_categoria,
-                    'origen_nombre': selected_client if origen_categoria == 'Cliente' else selected_employee,
-                    'project_id': split.get('project_id'), 'project_name': split.get('project_name'),
-                    'split_percent': split.get('percent'), 'split_group_id': batch_group_id,
+                    'monto': monto, 'origen_categoria': origen_categoria,
+                    'origen_nombre': selected_employee if origen_categoria == 'Empleado' else origen_categoria,
+                    'empleado_tipo': employee_type, 'split_group_id': batch_group_id,
                 }
                 movement_id = create_economy_movement_safe(firebase, movement)
                 log_economy_action_safe(firebase, 'crear', movement_id)
